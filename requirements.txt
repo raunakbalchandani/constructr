@@ -1,0 +1,26 @@
+# Foreperson.ai - MVP Dependencies
+# Install with: pip install -r requirements.txt
+
+# Web Framework
+streamlit>=1.28.0
+
+# AI/LLM
+openai>=1.0.0
+
+# PDF Extraction (using multiple for better compatibility)
+pymupdf>=1.23.0  # Best PDF text extraction
+pdfplumber>=0.10.0  # Good for tables
+PyPDF2>=3.0.0  # Fallback
+
+# Document Parsing
+python-docx>=0.8.11  # Word documents
+openpyxl>=3.1.0  # Excel files
+
+# Data Processing
+pandas>=2.0.0
+
+# Visualization
+plotly==5.18.0  # Locked version for streamlit compatibility
+
+# Utilities
+pathlib2>=2.3.7
