@@ -427,34 +427,35 @@ async def chat(
             detail="No OpenAI API key configured. Please add your API key in settings."
         )
     
-    if not ConstructionAIAssistant:
+    if not ConstructionAI:
         raise HTTPException(
             status_code=500,
             detail="AI assistant not available"
         )
     
-    # Get documents context
-    documents_text = ""
-    if request.project_id:
-        # Verify project ownership
-        project = db.query(Project).filter(
-            Project.id == request.project_id,
-            Project.owner_id == current_user.id
-        ).first()
-        
-        if project:
-            documents = db.query(Document).filter(
-                Document.project_id == request.project_id
-            ).all()
-            
-            for doc in documents:
-                if doc.extracted_text:
-                    documents_text += f"\n\n--- {doc.original_filename} ---\n{doc.extracted_text[:5000]}"
+    # Get all documents for the user (from all projects)
+    doc_list = []
+    projects = db.query(Project).filter(Project.owner_id == current_user.id).all()
+    
+    for project in projects:
+        documents = db.query(Document).filter(Document.project_id == project.id).all()
+        for doc in documents:
+            if doc.extracted_text:
+                doc_list.append({
+                    "name": doc.original_filename,
+                    "type": doc.document_type or "unknown",
+                    "content": doc.extracted_text[:10000]
+                })
     
     # Create AI assistant and get response
     try:
-        assistant = ConstructionAIAssistant(api_key=api_key)
-        response = assistant.chat(request.message, documents_text)
+        assistant = ConstructionAI(api_key=api_key)
+        
+        # Load documents if available
+        if doc_list:
+            assistant.load_documents(doc_list)
+        
+        response = assistant.ask_question(request.message)
         return {"response": response}
     except Exception as e:
         raise HTTPException(
