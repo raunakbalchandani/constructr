@@ -678,6 +678,39 @@ function CompareTab({ documents }: { documents: Document[] }) {
 
 // Settings Tab
 function SettingsTab() {
+  const [apiKey, setApiKey] = useState('')
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState('')
+
+  const handleSaveApiKey = async () => {
+    if (!apiKey.trim()) return
+    setIsSaving(true)
+    setSaveMessage('')
+    
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/auth/api-key', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ openai_api_key: apiKey })
+      })
+      
+      if (res.ok) {
+        setSaveMessage('✓ API key saved successfully!')
+        setApiKey('')
+      } else {
+        setSaveMessage('Failed to save API key')
+      }
+    } catch (error) {
+      setSaveMessage('Error saving API key')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -702,13 +735,35 @@ function SettingsTab() {
       <div className="card">
         <h2 className="text-lg font-semibold mb-4">API Key</h2>
         <p className="text-dark-400 text-sm mb-4">Add your OpenAI API key to enable AI features</p>
-        <div>
-          <label className="input-label">OpenAI API Key</label>
-          <input 
-            type="password" 
-            className="input" 
-            placeholder="sk-..." 
-          />
+        <div className="space-y-4">
+          <div>
+            <label className="input-label">OpenAI API Key</label>
+            <input 
+              type="password" 
+              className="input" 
+              placeholder="sk-..." 
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center space-x-4">
+            <button 
+              onClick={handleSaveApiKey}
+              disabled={isSaving || !apiKey.trim()}
+              className="btn-primary flex items-center space-x-2"
+            >
+              {isSaving ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <span>Save API Key</span>
+              )}
+            </button>
+            {saveMessage && (
+              <span className={saveMessage.includes('✓') ? 'text-green-400' : 'text-red-400'}>
+                {saveMessage}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
