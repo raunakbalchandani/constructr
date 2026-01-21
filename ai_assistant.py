@@ -8,22 +8,34 @@ from typing import List, Dict, Optional
 import os
 
 # System prompt for construction expertise
-SYSTEM_PROMPT = """You are an expert construction project consultant with deep knowledge of:
+SYSTEM_PROMPT = """You are an expert construction project consultant and AI assistant with deep knowledge of:
+
+**Core Expertise:**
 - Construction contracts (AIA, ConsensusDocs, EJCDC)
 - Project specifications (CSI MasterFormat)
 - RFIs, submittals, and change orders
-- Building codes and standards
-- Project scheduling and management
+- Building codes and standards (IBC, NEC, OSHA, etc.)
+- Project scheduling and management (CPM, Gantt charts)
 - Cost estimation and budgeting
+- Quality control and inspections
+- Safety regulations and best practices
+- Material specifications and standards
+- Construction methods and techniques
 
-When analyzing documents:
-1. Be specific and cite document names when referencing information
-2. Use construction industry terminology appropriately
-3. Highlight critical items that need attention
-4. Provide actionable recommendations
-5. Note any missing information or ambiguities
+**Your Role:**
+- Answer questions as a knowledgeable construction professional
+- Provide practical, actionable advice
+- Use construction industry terminology appropriately
+- When documents are provided, use them as context but don't limit yourself to only what's in them
+- For general construction questions, draw from your expertise even without document context
+- Be helpful, clear, and professional
 
-Format responses clearly with headers and bullet points when appropriate."""
+**Response Style:**
+- Format responses clearly with headers and bullet points when appropriate
+- Cite specific documents when referencing uploaded project documents
+- Provide examples and real-world context when helpful
+- Highlight critical items that need attention
+- Note any missing information or ambiguities when relevant"""
 
 
 class ConstructionAI:
@@ -174,7 +186,8 @@ Brief description of the document's purpose
             return self._handle_api_error(e)
 
     def ask_question(self, question: str) -> str:
-        """Answer a question about the loaded documents.
+        """Answer a question as a construction AI assistant.
+        Uses uploaded documents as context when available, but can answer general construction questions.
         
         Args:
             question: User's question
@@ -182,23 +195,42 @@ Brief description of the document's purpose
         Returns:
             AI response string
         """
-        if not self.documents:
-            return "📭 No documents loaded. Please upload documents first."
-
-        context = self._build_context()
-
-        prompt = f"""Based on the following project documents, answer this question:
+        # Build context from documents if available
+        context = ""
+        if self.documents:
+            context = self._build_context()
+            prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
 
 **Question**: {question}
 
-**Available Documents**:
+**Available Project Documents** (use these as context if relevant):
 {context}
 
-Provide a detailed answer that:
-1. Directly addresses the question
-2. Cites specific documents when referencing information
-3. Notes if information is not available in the documents
-4. Suggests related information that might be helpful"""
+**Instructions**:
+- Answer as a construction expert with deep knowledge of contracts, specifications, codes, scheduling, and project management
+- If the question relates to the uploaded documents, reference them specifically
+- If the question is general construction knowledge, provide expert guidance even without document context
+- Be practical, actionable, and use construction industry terminology
+- If documents are available but don't contain relevant info, still answer using your expertise
+- Format your response clearly with headers and bullet points when helpful"""
+        else:
+            prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
+
+**Question**: {question}
+
+**Instructions**:
+- Answer as a construction expert with deep knowledge of:
+  * Construction contracts (AIA, ConsensusDocs, EJCDC)
+  * Project specifications (CSI MasterFormat)
+  * RFIs, submittals, and change orders
+  * Building codes and standards (IBC, NEC, etc.)
+  * Project scheduling and management
+  * Cost estimation and budgeting
+  * Safety regulations (OSHA)
+  * Quality control and inspections
+- Be practical, actionable, and use construction industry terminology
+- Provide specific examples when helpful
+- Format your response clearly with headers and bullet points when appropriate"""
 
         try:
             response = self.client.chat.completions.create(
@@ -207,7 +239,7 @@ Provide a detailed answer that:
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1500,
+                max_tokens=2000,
                 temperature=0.4
             )
             return response.choices[0].message.content
