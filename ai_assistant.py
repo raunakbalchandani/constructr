@@ -114,6 +114,109 @@ Try with fewer or smaller documents."""
         else:
             return f"❌ **Error**: {error_msg}"
 
+    def detect_document_type(self, filename: str, text_content: str) -> str:
+        """Detect document type using AI analysis based on construction industry standards.
+        
+        Args:
+            filename: Name of the file
+            text_content: Extracted text content (first 3000 chars for analysis)
+            
+        Returns:
+            Document type: contract, specification, rfi, submittal, drawing, change_order, 
+                          addendum, shop_drawing, as_built, or unknown
+        """
+        # First try simple filename-based detection
+        filename_lower = filename.lower()
+        if 'contract' in filename_lower or 'agreement' in filename_lower:
+            return 'contract'
+        elif 'spec' in filename_lower or 'specification' in filename_lower:
+            return 'specification'
+        elif 'rfi' in filename_lower or 'request for information' in filename_lower:
+            return 'rfi'
+        elif 'submittal' in filename_lower:
+            return 'submittal'
+        elif 'drawing' in filename_lower or 'dwg' in filename_lower or 'plan' in filename_lower:
+            return 'drawing'
+        elif 'change order' in filename_lower or 'co' in filename_lower:
+            return 'change_order'
+        elif 'addendum' in filename_lower:
+            return 'addendum'
+        elif 'shop drawing' in filename_lower:
+            return 'shop_drawing'
+        elif 'as-built' in filename_lower or 'as built' in filename_lower:
+            return 'as_built'
+        
+        # If filename doesn't give clear indication, use AI to analyze content
+        if not text_content or len(text_content.strip()) < 50:
+            return 'unknown'
+        
+        # Analyze first 3000 characters for type detection
+        content_sample = text_content[:3000]
+        
+        prompt = f"""Analyze this construction document and classify its type based on construction industry standards.
+
+**Filename**: {filename}
+**Content Sample**:
+{content_sample}
+
+**Document Types** (choose ONE that best matches):
+- **contract**: Legal agreements, contracts, subcontracts, purchase orders
+- **specification**: Technical specs, material specs, performance specs (CSI MasterFormat)
+- **rfi**: Request for Information - questions about design/construction
+- **submittal**: Product data, material samples, shop drawings submitted for approval
+- **drawing**: Architectural drawings, structural drawings, MEP drawings, plans, elevations, sections
+- **change_order**: Change orders, modifications to contract scope/cost
+- **addendum**: Addenda to contracts or specifications
+- **shop_drawing**: Detailed fabrication drawings from contractors/subcontractors
+- **as_built**: As-built drawings showing actual constructed conditions
+- **unknown**: Cannot determine type
+
+**Classification Rules**:
+- Contracts contain legal language, parties, terms, payment clauses
+- Specifications contain technical requirements, standards, materials (often CSI format)
+- RFIs are questions asking for clarification
+- Submittals are submissions for approval (product data, samples)
+- Drawings contain graphical/visual information, dimensions, annotations
+- Change orders modify contract terms, scope, or cost
+- Shop drawings are detailed fabrication drawings
+- As-builts document actual constructed conditions
+
+Respond with ONLY the document type (one word, lowercase, underscore for multi-word)."""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a construction document classification expert. Classify documents based on construction industry standards."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=50,
+                temperature=0.1  # Low temperature for consistent classification
+            )
+            detected_type = response.choices[0].message.content.strip().lower()
+            
+            # Validate the response is one of our known types
+            valid_types = ['contract', 'specification', 'rfi', 'submittal', 'drawing', 
+                          'change_order', 'addendum', 'shop_drawing', 'as_built', 'unknown']
+            
+            # Handle multi-word responses
+            if ' ' in detected_type:
+                detected_type = detected_type.replace(' ', '_')
+            
+            # Return detected type if valid, otherwise return unknown
+            if detected_type in valid_types:
+                return detected_type
+            else:
+                # Try to match partial
+                for valid_type in valid_types:
+                    if valid_type in detected_type or detected_type in valid_type:
+                        return valid_type
+                return 'unknown'
+                
+        except Exception as e:
+            # Fallback to filename-based detection on error
+            return 'unknown'
+
     def get_document_summary(self, doc_index: int) -> str:
         """Generate a comprehensive summary of a specific document.
         

@@ -314,16 +314,31 @@ async def upload_document(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     
-    # Detect document type
-    doc_type = detect_document_type(file_info["original_filename"])
-    
     # Extract text if parser available
     extracted_text = None
     if DocumentParser:
         try:
             parser = DocumentParser()
-            extracted_text = parser.extract_text(file_info["file_path"])
+            result = parser.parse_document(file_info["file_path"])
+            extracted_text = result.get('text_content', '')
         except Exception:
+            pass
+    
+    # Detect document type - use AI if available, otherwise use filename
+    doc_type = detect_document_type(file_info["original_filename"])
+    
+    # Use AI to detect document type if we have text and API key
+    if extracted_text and ConstructionAI:
+        try:
+            api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
+            if api_key:
+                ai_assistant = ConstructionAI(api_key=api_key)
+                doc_type = ai_assistant.detect_document_type(
+                    file_info["original_filename"], 
+                    extracted_text
+                )
+        except Exception:
+            # Fall back to filename-based detection on error
             pass
     
     # Create document record
