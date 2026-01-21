@@ -783,27 +783,82 @@ export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('documents')
   const [projects, setProjects] = useState<Project[]>([
-    { id: '1', name: 'Downtown Office Build', documents: 12 },
-    { id: '2', name: 'Residential Complex A', documents: 8 },
+    { id: '1', name: 'My Project', documents: 0 },
   ])
   const [currentProject, setCurrentProject] = useState<Project>(projects[0])
-  const [documents, setDocuments] = useState<Document[]>([
-    { id: '1', name: 'General Contract.pdf', type: 'contract', uploadedAt: '2024-01-15', size: '2.4 MB' },
-    { id: '2', name: 'Structural Specifications.pdf', type: 'specification', uploadedAt: '2024-01-14', size: '5.1 MB' },
-    { id: '3', name: 'RFI-001 Foundation.pdf', type: 'rfi', uploadedAt: '2024-01-13', size: '320 KB' },
-    { id: '4', name: 'Drawing A-101.pdf', type: 'drawing', uploadedAt: '2024-01-12', size: '8.7 MB' },
-  ])
+  const [documents, setDocuments] = useState<Document[]>([])
+  const [isUploading, setIsUploading] = useState(false)
+
+  // Load documents on mount
+  useEffect(() => {
+    loadDocuments()
+  }, [])
+
+  const loadDocuments = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/projects/1/documents', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDocuments(data.map((d: any) => ({
+          id: d.id.toString(),
+          name: d.original_filename,
+          type: d.document_type || 'unknown',
+          uploadedAt: d.created_at?.split('T')[0] || 'Unknown',
+          size: formatFileSize(d.file_size || 0)
+        })))
+      }
+    } catch (error) {
+      console.error('Failed to load documents:', error)
+    }
+  }
 
   const handleUpload = async (files: FileList) => {
-    // Simulate upload
-    const newDocs: Document[] = Array.from(files).map((file, i) => ({
-      id: Date.now().toString() + i,
-      name: file.name,
-      type: detectDocumentType(file.name),
-      uploadedAt: new Date().toISOString().split('T')[0],
-      size: formatFileSize(file.size)
-    }))
-    setDocuments(prev => [...newDocs, ...prev])
+    const token = localStorage.getItem('token')
+    setIsUploading(true)
+    
+    // First ensure project exists
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ name: 'My Project' })
+      })
+    } catch (e) {
+      // Project might already exist
+    }
+
+    for (const file of Array.from(files)) {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      try {
+        const res = await fetch('/api/projects/1/documents', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        })
+        
+        if (res.ok) {
+          const doc = await res.json()
+          setDocuments(prev => [{
+            id: doc.id.toString(),
+            name: doc.original_filename,
+            type: doc.document_type || 'unknown',
+            uploadedAt: new Date().toISOString().split('T')[0],
+            size: formatFileSize(doc.file_size || 0)
+          }, ...prev])
+        }
+      } catch (error) {
+        console.error('Upload failed:', error)
+      }
+    }
+    setIsUploading(false)
   }
 
   const handleDelete = (id: string) => {
