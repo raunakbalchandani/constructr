@@ -26,11 +26,11 @@ from backend.storage import save_file, get_file, delete_file
 
 # Import document parser and AI assistant from parent
 try:
-    from document_parser import DocumentParser
-    from ai_assistant import ConstructionAIAssistant
+    from document_parser import ConstructionDocumentParser as DocumentParser
+    from ai_assistant import ConstructionAI
 except ImportError:
     DocumentParser = None
-    ConstructionAIAssistant = None
+    ConstructionAI = None
 
 # Initialize FastAPI
 app = FastAPI(
