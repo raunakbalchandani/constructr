@@ -146,14 +146,12 @@ Try with fewer or smaller documents."""
         elif 'as-built' in filename_lower or 'as built' in filename_lower:
             return 'as_built'
         
-        # If filename doesn't give clear indication, use AI to analyze content
-        if not text_content or len(text_content.strip()) < 50:
-            return 'unknown'
+        # Use AI to analyze - even with minimal/no text, filename can be analyzed
+        # Analyze first 3000 characters for type detection (if available)
+        content_sample = text_content[:3000] if text_content and len(text_content.strip()) >= 50 else ""
         
-        # Analyze first 3000 characters for type detection
-        content_sample = text_content[:3000]
-        
-        prompt = f"""Analyze this construction document and classify its type based on construction industry standards.
+        if content_sample:
+            prompt = f"""Analyze this construction document and classify its type based on construction industry standards.
 
 **Filename**: {filename}
 **Content Sample**:
@@ -180,6 +178,27 @@ Try with fewer or smaller documents."""
 - Change orders modify contract terms, scope, or cost
 - Shop drawings are detailed fabrication drawings
 - As-builts document actual constructed conditions
+
+Respond with ONLY the document type (one word, lowercase, underscore for multi-word)."""
+        else:
+            # No content available, analyze based on filename only
+            prompt = f"""Analyze this construction document filename and classify its type based on construction industry standards.
+
+**Filename**: {filename}
+
+**Document Types** (choose ONE that best matches):
+- **contract**: Legal agreements, contracts, subcontracts, purchase orders
+- **specification**: Technical specs, material specs, performance specs (CSI MasterFormat)
+- **rfi**: Request for Information - questions about design/construction
+- **submittal**: Product data, material samples, shop drawings submitted for approval
+- **drawing**: Architectural drawings, structural drawings, MEP drawings, plans, elevations, sections
+- **change_order**: Change orders, modifications to contract scope/cost
+- **addendum**: Addenda to contracts or specifications
+- **shop_drawing**: Detailed fabrication drawings from contractors/subcontractors
+- **as_built**: As-built drawings showing actual constructed conditions
+- **unknown**: Cannot determine type
+
+Based on the filename pattern and construction industry naming conventions, classify this document.
 
 Respond with ONLY the document type (one word, lowercase, underscore for multi-word)."""
 

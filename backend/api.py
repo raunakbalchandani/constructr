@@ -321,24 +321,34 @@ async def upload_document(
             parser = DocumentParser()
             result = parser.parse_document(file_info["file_path"])
             extracted_text = result.get('text_content', '')
-        except Exception:
-            pass
+            if not extracted_text:
+                # Try alternative key
+                extracted_text = result.get('text', '') or result.get('content', '')
+        except Exception as e:
+            # Log error but continue
+            import logging
+            logging.warning(f"Text extraction failed: {e}")
+            extracted_text = None
     
     # Detect document type - use AI if available, otherwise use filename
     doc_type = detect_document_type(file_info["original_filename"])
     
-    # Use AI to detect document type if we have text and API key
-    if extracted_text and ConstructionAI:
+    # Use AI to detect document type if we have API key (even with minimal text)
+    if ConstructionAI:
         try:
             api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
             if api_key:
                 ai_assistant = ConstructionAI(api_key=api_key)
+                # Use extracted text if available, otherwise use filename for detection
+                text_for_detection = extracted_text if extracted_text else ""
                 doc_type = ai_assistant.detect_document_type(
                     file_info["original_filename"], 
-                    extracted_text
+                    text_for_detection
                 )
-        except Exception:
-            # Fall back to filename-based detection on error
+        except Exception as e:
+            # Log error but fall back to filename-based detection
+            import logging
+            logging.warning(f"AI document type detection failed: {e}")
             pass
     
     # Create document record
