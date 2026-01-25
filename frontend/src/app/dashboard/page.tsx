@@ -23,7 +23,9 @@ import {
   X,
   Menu,
   Home,
-  FolderOpen
+  FolderOpen,
+  PanelLeftClose,
+  PanelLeftOpen
 } from 'lucide-react'
 
 // Types
@@ -221,26 +223,32 @@ function Sidebar({
       {/* Sidebar */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50
-        w-64 bg-dark-800 border-r border-dark-700
-        transform transition-transform duration-200
+        ${isOpen ? 'w-64' : 'w-0 lg:w-16'} bg-dark-800 border-r border-dark-700
+        transform transition-all duration-200 overflow-hidden
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+        lg:overflow-visible
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between p-4 border-b border-dark-700">
-            <div className="flex items-center space-x-3">
+          <div className="flex items-center justify-between p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0">
+            <div className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'}`}>
               <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
                 <Building2 className="w-5 h-5 text-white" />
               </div>
               <span className="text-lg font-bold">Foreperson</span>
             </div>
+            {!isOpen && (
+              <div className="hidden lg:flex items-center justify-center w-full">
+                <Building2 className="w-6 h-6 text-brand-400" />
+              </div>
+            )}
             <button onClick={onClose} className="lg:hidden text-dark-400 hover:text-white">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Project Selector */}
-          <div className="p-4 border-b border-dark-700">
+          <div className={`p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-dark-400 uppercase tracking-wide">Project</label>
               <div className="flex items-center space-x-1">
@@ -281,7 +289,7 @@ function Sidebar({
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-1">
+          <nav className={`flex-1 p-4 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
             {navItems.map(item => (
               <button
                 key={item.id}
@@ -291,15 +299,16 @@ function Sidebar({
                     ? 'bg-brand-600 text-white' 
                     : 'text-dark-300 hover:bg-dark-700 hover:text-white'
                 }`}
+                title={!isOpen ? item.label : undefined}
               >
-                <item.icon className="w-5 h-5" />
-                <span>{item.label}</span>
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                <span className={isOpen ? '' : 'lg:hidden'}>{item.label}</span>
               </button>
             ))}
           </nav>
 
           {/* Footer */}
-          <div className="p-4 border-t border-dark-700 space-y-1">
+          <div className={`p-4 border-t border-dark-700 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
             <button 
               onClick={() => { setActiveTab('settings'); onClose() }}
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
@@ -307,9 +316,10 @@ function Sidebar({
                   ? 'bg-brand-600 text-white'
                   : 'text-dark-300 hover:bg-dark-700 hover:text-white'
               }`}
+              title={!isOpen ? 'Settings' : undefined}
             >
-              <Settings className="w-5 h-5" />
-              <span>Settings</span>
+              <Settings className="w-5 h-5 flex-shrink-0" />
+              <span className={isOpen ? '' : 'lg:hidden'}>Settings</span>
             </button>
             <button 
               onClick={() => {
@@ -317,9 +327,10 @@ function Sidebar({
                 window.location.href = '/login'
               }}
               className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-dark-300 hover:bg-dark-700 hover:text-white transition-colors"
+              title={!isOpen ? 'Sign out' : undefined}
             >
-              <LogOut className="w-5 h-5" />
-              <span>Sign out</span>
+              <LogOut className="w-5 h-5 flex-shrink-0" />
+              <span className={isOpen ? '' : 'lg:hidden'}>Sign out</span>
             </button>
           </div>
         </div>
@@ -916,7 +927,7 @@ function SettingsTab() {
 
 // Main Dashboard
 export default function DashboardPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true) // Default to open on desktop
   const [activeTab, setActiveTab] = useState('documents')
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
@@ -1350,21 +1361,28 @@ export default function DashboardPage() {
       />
 
       <main className="flex-1 min-w-0">
-        {/* Mobile header */}
-        <div className="lg:hidden flex items-center justify-between p-4 border-b border-dark-700 bg-dark-800">
-          <button 
-            onClick={() => setSidebarOpen(true)}
-            className="p-2 text-dark-300 hover:text-white"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-          <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 bg-gradient-to-br from-brand-500 to-accent-secondary rounded flex items-center justify-center">
-              <Building2 className="w-4 h-4 text-white" />
+        {/* Header with sidebar toggle */}
+        <div className="flex items-center justify-between p-4 border-b border-dark-700 bg-dark-800">
+          <div className="flex items-center space-x-3">
+            {/* Sidebar toggle button - works on both mobile and desktop */}
+            <button 
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 text-dark-300 hover:text-white transition-colors"
+              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              {sidebarOpen ? (
+                <PanelLeftClose className="w-5 h-5 lg:w-6 lg:h-6" />
+              ) : (
+                <PanelLeftOpen className="w-5 h-5 lg:w-6 lg:h-6" />
+              )}
+            </button>
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 bg-gradient-to-br from-brand-500 to-accent-secondary rounded flex items-center justify-center">
+                <Building2 className="w-4 h-4 text-white" />
+              </div>
+              <span className="font-bold">Foreperson</span>
             </div>
-            <span className="font-bold">Foreperson</span>
           </div>
-          <div className="w-10" /> {/* Spacer */}
         </div>
 
         {/* Content */}
