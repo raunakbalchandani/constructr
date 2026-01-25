@@ -133,6 +133,14 @@ class ChatHistoryResponse(BaseModel):
         from_attributes = True
 
 
+class ConflictResponse(BaseModel):
+    id: str
+    severity: str
+    title: str
+    description: str
+    documents: List[str]
+
+
 class APIKeyUpdate(BaseModel):
     openai_api_key: str
 
@@ -618,6 +626,153 @@ async def get_chat_history(
         "messages": messages,
         "created_at": chat.created_at
     }
+
+
+@app.post("/projects/{project_id}/conflicts", response_model=List[ConflictResponse])
+async def analyze_conflicts(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Analyze documents in a project for conflicts."""
+    # Verify project ownership
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get all documents for the project
+    documents = db.query(Document).filter(Document.project_id == project_id).all()
+    
+    if len(documents) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 documents are required for conflict analysis"
+        )
+    
+    # Get user's API key
+    api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
+    
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No OpenAI API key configured. Please add your API key in settings."
+        )
+    
+    if not ConstructionAI:
+        raise HTTPException(
+            status_code=500,
+            detail="AI assistant not available"
+        )
+    
+    # Prepare document list for AI
+    doc_list = []
+    doc_name_map = {}
+    
+    for doc in documents:
+        if doc.extracted_text:
+            word_count = len(doc.extracted_text.split())
+            doc_list.append({
+                "filename": doc.original_filename,
+                "document_type": doc.document_type or "unknown",
+                "text_content": doc.extracted_text,
+                "word_count": word_count
+            })
+            doc_name_map[doc.original_filename] = doc
+    
+    if len(doc_list) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 2 documents with extractable text are required"
+        )
+    
+    # Use AI to find conflicts
+    try:
+        assistant = ConstructionAI(api_key=api_key)
+        assistant.load_documents(doc_list)
+        conflict_analysis = assistant.find_conflicts()
+        
+        # Parse the AI response into structured conflicts
+        conflicts = _parse_conflict_response(conflict_analysis, [d['filename'] for d in doc_list])
+        
+        return conflicts
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Conflict analysis error: {str(e)}"
+        )
+
+
+def _parse_conflict_response(analysis_text: str, document_names: List[str]) -> List[dict]:
+    """Parse AI conflict analysis text into structured conflict objects."""
+    import re
+    
+    conflicts = []
+    
+    # Split by common conflict indicators
+    # Look for patterns like "##", numbered lists, or conflict descriptions
+    sections = re.split(r'\n(?=##|\d+\.|[-*]|Conflict|Issue|Problem)', analysis_text, flags=re.IGNORECASE)
+    
+    conflict_id = 1
+    for section in sections:
+        section = section.strip()
+        if not section or len(section) < 50:  # Skip very short sections
+            continue
+        
+        # Determine severity based on keywords
+        severity = "medium"
+        if any(word in section.lower() for word in ["critical", "urgent", "severe", "high", "major"]):
+            severity = "high"
+        elif any(word in section.lower() for word in ["minor", "low", "small"]):
+            severity = "low"
+        
+        # Extract title (first line or first sentence)
+        lines = section.split('\n')
+        title = lines[0].strip()
+        if title.startswith('#'):
+            title = title.lstrip('#').strip()
+        if len(title) > 100:
+            title = title[:100] + "..."
+        
+        # Extract description (rest of section, limited to 500 chars)
+        description = '\n'.join(lines[1:]).strip()[:500]
+        if not description:
+            description = section[:500]
+        
+        # Find which documents are mentioned
+        mentioned_docs = []
+        for doc_name in document_names:
+            if doc_name.lower() in section.lower():
+                mentioned_docs.append(doc_name)
+        
+        # If no documents mentioned, include all (conflict might be across all)
+        if not mentioned_docs and len(document_names) >= 2:
+            mentioned_docs = document_names[:2]  # At least 2 for a conflict
+        
+        if title and description and mentioned_docs:
+            conflicts.append({
+                "id": str(conflict_id),
+                "severity": severity,
+                "title": title,
+                "description": description,
+                "documents": mentioned_docs
+            })
+            conflict_id += 1
+    
+    # If parsing didn't work well, create a single summary conflict
+    if not conflicts and analysis_text:
+        conflicts.append({
+            "id": "1",
+            "severity": "medium",
+            "title": "Document Analysis Results",
+            "description": analysis_text[:500],
+            "documents": document_names[:2] if len(document_names) >= 2 else document_names
+        })
+    
+    return conflicts
 
 
 # ============ Helper Functions ============

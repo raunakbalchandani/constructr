@@ -600,31 +600,42 @@ function ChatTab({
 }
 
 // Conflicts Tab
-function ConflictsTab({ documents }: { documents: Document[] }) {
+function ConflictsTab({ documents, currentProject }: { documents: Document[]; currentProject: Project | null }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [conflicts, setConflicts] = useState<any[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   const analyzeConflicts = async () => {
+    if (!currentProject || documents.length < 2) {
+      setError('At least 2 documents are required for conflict analysis')
+      return
+    }
+
     setIsAnalyzing(true)
-    // Simulate analysis
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setConflicts([
-      {
-        id: '1',
-        severity: 'high',
-        title: 'Payment Terms Mismatch',
-        description: 'Contract states Net 30 payment terms, but the purchase order specifies Net 15.',
-        documents: ['General Contract.pdf', 'Purchase Order 001.pdf']
-      },
-      {
-        id: '2',
-        severity: 'medium',
-        title: 'Material Specification Conflict',
-        description: 'Drawing D-101 specifies steel grade A36, but the specification document requires A572.',
-        documents: ['Drawing D-101.pdf', 'Structural Specs.pdf']
+    setError(null)
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${currentProject.id}/conflicts`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json()
+        throw new Error(errorData.detail || 'Failed to analyze conflicts')
       }
-    ])
-    setIsAnalyzing(false)
+
+      const data = await res.json()
+      setConflicts(data)
+    } catch (err: any) {
+      setError(err.message || 'Failed to analyze conflicts. Please try again.')
+      setConflicts([])
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   const severityColors = {
@@ -659,13 +670,19 @@ function ConflictsTab({ documents }: { documents: Document[] }) {
         </button>
       </div>
 
+      {error && (
+        <div className="card border-red-500/30 bg-red-500/10 p-4">
+          <p className="text-red-400">{error}</p>
+        </div>
+      )}
+
       {documents.length < 2 ? (
         <div className="card text-center py-12">
           <FileSearch className="w-12 h-12 text-dark-500 mx-auto mb-4" />
           <p className="text-dark-400 mb-2">Upload at least 2 documents to detect conflicts</p>
           <p className="text-sm text-dark-500">The AI will compare your documents and find discrepancies</p>
         </div>
-      ) : conflicts.length === 0 ? (
+      ) : conflicts.length === 0 && !isAnalyzing ? (
         <div className="card text-center py-12">
           <AlertTriangle className="w-12 h-12 text-dark-500 mx-auto mb-4" />
           <p className="text-dark-400 mb-2">No conflicts analyzed yet</p>
@@ -1294,7 +1311,7 @@ export default function DashboardPage() {
           />
         )
       case 'conflicts':
-        return <ConflictsTab documents={documents} />
+        return <ConflictsTab documents={documents} currentProject={currentProject} />
       case 'compare':
         return <CompareTab documents={documents} />
       case 'settings':
