@@ -48,6 +48,83 @@ interface Project {
   documents: number
 }
 
+// Add Project Modal
+function AddProjectModal({
+  isOpen,
+  onClose,
+  onAdd
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onAdd: (name: string, description?: string) => void
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    
+    setIsLoading(true)
+    await onAdd(name.trim(), description.trim() || undefined)
+    setIsLoading(false)
+    setName('')
+    setDescription('')
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-dark-800 rounded-lg border border-dark-700 p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold mb-4">Create New Project</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm text-dark-300 mb-2">Project Name *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input w-full"
+              placeholder="Enter project name"
+              required
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-dark-300 mb-2">Description (optional)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="input w-full min-h-[100px] resize-none"
+              placeholder="Enter project description"
+            />
+          </div>
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="btn-ghost"
+              disabled={isLoading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={isLoading || !name.trim()}
+            >
+              {isLoading ? 'Creating...' : 'Create Project'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // Sidebar
 function Sidebar({ 
   isOpen, 
@@ -56,7 +133,8 @@ function Sidebar({
   setActiveTab,
   projects,
   currentProject,
-  setCurrentProject
+  setCurrentProject,
+  onAddProject
 }: {
   isOpen: boolean
   onClose: () => void
@@ -65,6 +143,7 @@ function Sidebar({
   projects: Project[]
   currentProject: Project | null
   setCurrentProject: (project: Project) => void
+  onAddProject: () => void
 }) {
   const navItems = [
     { id: 'documents', icon: FileText, label: 'Documents' },
@@ -106,7 +185,16 @@ function Sidebar({
 
           {/* Project Selector */}
           <div className="p-4 border-b border-dark-700">
-            <label className="text-xs text-dark-400 uppercase tracking-wide mb-2 block">Project</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-dark-400 uppercase tracking-wide">Project</label>
+              <button
+                onClick={onAddProject}
+                className="text-brand-400 hover:text-brand-300 transition-colors"
+                title="Add new project"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
             <div className="relative">
               <select 
                 value={currentProject?.id || ''}
@@ -325,7 +413,7 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
 }
 
 // Chat Tab
-function ChatTab({ documents }: { documents: Document[] }) {
+function ChatTab({ documents, currentProject }: { documents: Document[]; currentProject: Project | null }) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -368,7 +456,10 @@ function ChatTab({ documents }: { documents: Document[] }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ message: input })
+        body: JSON.stringify({ 
+          message: input,
+          project_id: currentProject ? parseInt(currentProject.id) : null
+        })
       })
 
       const data = await res.json()
@@ -460,8 +551,8 @@ function ChatTab({ documents }: { documents: Document[] }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder={documents.length ? "Ask about your documents..." : "Upload documents first to start chatting..."}
-            disabled={!documents.length}
+            placeholder={documents.length ? "Ask about your documents..." : currentProject ? "Upload documents to this project first..." : "Select or create a project first..."}
+            disabled={!documents.length || !currentProject}
             className="input pr-12"
           />
           <button className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors">
@@ -470,7 +561,7 @@ function ChatTab({ documents }: { documents: Document[] }) {
         </div>
         <button
           onClick={handleSend}
-          disabled={!input.trim() || isLoading || !documents.length}
+          disabled={!input.trim() || isLoading || !documents.length || !currentProject}
           className="btn-primary p-3"
         >
           <Send className="w-5 h-5" />
@@ -782,22 +873,60 @@ function SettingsTab() {
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('documents')
-  const [projects, setProjects] = useState<Project[]>([
-    { id: '1', name: 'My Project', documents: 0 },
-  ])
-  const [currentProject, setCurrentProject] = useState<Project>(projects[0])
+  const [projects, setProjects] = useState<Project[]>([])
+  const [currentProject, setCurrentProject] = useState<Project | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
   const [isUploading, setIsUploading] = useState(false)
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false)
 
-  // Load documents on mount
+  // Load projects on mount
   useEffect(() => {
-    loadDocuments()
+    loadProjects()
   }, [])
 
-  const loadDocuments = async () => {
+  // Load documents when project changes
+  useEffect(() => {
+    if (currentProject) {
+      loadDocuments()
+    } else {
+      setDocuments([])
+    }
+  }, [currentProject])
+
+  const loadProjects = async () => {
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch('/api/projects/1/documents', {
+      const res = await fetch('/api/projects', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const projectsList = data.map((p: any) => ({
+          id: p.id.toString(),
+          name: p.name,
+          documents: p.document_count || 0
+        }))
+        setProjects(projectsList)
+        
+        // Set current project to first one, or create default if none exist
+        if (projectsList.length > 0) {
+          setCurrentProject(projectsList[0])
+        } else {
+          // Create a default project if none exist
+          handleAddProject('My Project')
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load projects:', error)
+    }
+  }
+
+  const loadDocuments = async () => {
+    if (!currentProject) return
+    
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${currentProject.id}/documents`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (res.ok) {
@@ -815,30 +944,46 @@ export default function DashboardPage() {
     }
   }
 
-  const handleUpload = async (files: FileList) => {
-    const token = localStorage.getItem('token')
-    setIsUploading(true)
-    
-    // First ensure project exists
+  const handleAddProject = async (name: string, description?: string) => {
     try {
-      await fetch('/api/projects', {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/projects', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name: 'My Project' })
+        body: JSON.stringify({ name, description })
       })
-    } catch (e) {
-      // Project might already exist
+      
+      if (res.ok) {
+        const newProject = await res.json()
+        const project = {
+          id: newProject.id.toString(),
+          name: newProject.name,
+          documents: 0
+        }
+        setProjects(prev => [...prev, project])
+        setCurrentProject(project)
+        setShowAddProjectModal(false)
+      }
+    } catch (error) {
+      console.error('Failed to create project:', error)
     }
+  }
+
+  const handleUpload = async (files: FileList) => {
+    if (!currentProject) return
+    
+    const token = localStorage.getItem('token')
+    setIsUploading(true)
 
     for (const file of Array.from(files)) {
       const formData = new FormData()
       formData.append('file', file)
       
       try {
-        const res = await fetch('/api/projects/1/documents', {
+        const res = await fetch(`/api/projects/${currentProject.id}/documents`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` },
           body: formData
@@ -853,6 +998,12 @@ export default function DashboardPage() {
             uploadedAt: new Date().toISOString().split('T')[0],
             size: formatFileSize(doc.file_size || 0)
           }, ...prev])
+          // Update project document count
+          setProjects(prev => prev.map(p => 
+            p.id === currentProject.id 
+              ? { ...p, documents: p.documents + 1 }
+              : p
+          ))
         }
       } catch (error) {
         console.error('Upload failed:', error)
@@ -861,8 +1012,28 @@ export default function DashboardPage() {
     setIsUploading(false)
   }
 
-  const handleDelete = (id: string) => {
-    setDocuments(prev => prev.filter(d => d.id !== id))
+  const handleDelete = async (id: string) => {
+    if (!currentProject) return
+    
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${currentProject.id}/documents/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (res.ok) {
+        setDocuments(prev => prev.filter(d => d.id !== id))
+        // Update project document count
+        setProjects(prev => prev.map(p => 
+          p.id === currentProject.id 
+            ? { ...p, documents: Math.max(0, p.documents - 1) }
+            : p
+        ))
+      }
+    } catch (error) {
+      console.error('Failed to delete document:', error)
+    }
   }
 
   const detectDocumentType = (filename: string): string => {
@@ -886,7 +1057,7 @@ export default function DashboardPage() {
       case 'documents':
         return <DocumentsTab documents={documents} onUpload={handleUpload} onDelete={handleDelete} />
       case 'chat':
-        return <ChatTab documents={documents} />
+        return <ChatTab documents={documents} currentProject={currentProject} />
       case 'conflicts':
         return <ConflictsTab documents={documents} />
       case 'compare':
@@ -900,6 +1071,11 @@ export default function DashboardPage() {
 
   return (
     <div className="flex min-h-screen bg-dark-900">
+      <AddProjectModal
+        isOpen={showAddProjectModal}
+        onClose={() => setShowAddProjectModal(false)}
+        onAdd={handleAddProject}
+      />
       <Sidebar 
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -908,6 +1084,7 @@ export default function DashboardPage() {
         projects={projects}
         currentProject={currentProject}
         setCurrentProject={setCurrentProject}
+        onAddProject={() => setShowAddProjectModal(true)}
       />
 
       <main className="flex-1 min-w-0">

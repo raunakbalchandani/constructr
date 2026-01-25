@@ -107,6 +107,7 @@ class DocumentResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     project_id: Optional[int] = None
+    project_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
@@ -458,19 +459,44 @@ async def chat(
             detail="AI assistant not available"
         )
     
-    # Get all documents for the user (from all projects)
+    # Get documents for the specified project (or all projects if no project_id)
     doc_list = []
-    projects = db.query(Project).filter(Project.owner_id == current_user.id).all()
     
-    for project in projects:
-        documents = db.query(Document).filter(Document.project_id == project.id).all()
+    if request.project_id:
+        # Only get documents from the specified project
+        project = db.query(Project).filter(
+            Project.id == request.project_id,
+            Project.owner_id == current_user.id
+        ).first()
+        
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        
+        documents = db.query(Document).filter(Document.project_id == request.project_id).all()
         for doc in documents:
             if doc.extracted_text:
+                # Count words in extracted text
+                word_count = len(doc.extracted_text.split())
                 doc_list.append({
-                    "name": doc.original_filename,
-                    "type": doc.document_type or "unknown",
-                    "content": doc.extracted_text[:10000]
+                    "filename": doc.original_filename,
+                    "document_type": doc.document_type or "unknown",
+                    "text_content": doc.extracted_text,
+                    "word_count": word_count
                 })
+    else:
+        # Fallback: get all documents from all projects (for backward compatibility)
+        projects = db.query(Project).filter(Project.owner_id == current_user.id).all()
+        for project in projects:
+            documents = db.query(Document).filter(Document.project_id == project.id).all()
+            for doc in documents:
+                if doc.extracted_text:
+                    word_count = len(doc.extracted_text.split())
+                    doc_list.append({
+                        "filename": doc.original_filename,
+                        "document_type": doc.document_type or "unknown",
+                        "text_content": doc.extracted_text,
+                        "word_count": word_count
+                    })
     
     # Create AI assistant and get response
     try:
