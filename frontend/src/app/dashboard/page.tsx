@@ -188,7 +188,8 @@ function Sidebar({
   projects,
   currentProject,
   setCurrentProject,
-  onAddProject
+  onAddProject,
+  onDeleteProject
 }: {
   isOpen: boolean
   onClose: () => void
