@@ -275,11 +275,16 @@ function Sidebar({
                   <Plus className="w-4 h-4" />
                   <span>New</span>
                 </button>
-                {currentProject && projects.length > 1 && (
+                {currentProject && (
                   <button
                     onClick={() => onDeleteProject(currentProject.id)}
-                    className="flex items-center space-x-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
-                    title="Delete project"
+                    className={`flex items-center space-x-1 px-2 py-1 text-xs rounded transition-colors ${
+                      projects.length > 1
+                        ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
+                        : 'text-dark-500 cursor-not-allowed opacity-50'
+                    }`}
+                    title={projects.length > 1 ? "Delete project" : "Cannot delete the last project"}
+                    disabled={projects.length <= 1}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
