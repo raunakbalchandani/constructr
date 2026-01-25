@@ -231,12 +231,19 @@ function Sidebar({
         <div className="flex flex-col h-full">
           {/* Logo and Toggle Button */}
           <div className="flex items-center justify-between p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0">
-            <div className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'}`}>
+            <button
+              onClick={() => {
+                setActiveTab('documents')
+                onClose()
+              }}
+              className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'} hover:opacity-80 transition-opacity cursor-pointer`}
+              title="Go to dashboard"
+            >
               <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
                 <Building2 className="w-5 h-5 text-white" />
               </div>
-              <span className="text-lg font-bold">Foreperson</span>
-            </div>
+              <span className="text-lg font-bold">Foreperson.ai</span>
+            </button>
             {!isOpen && (
               <div className="hidden lg:flex flex-col items-center justify-center w-full space-y-2">
                 <button 
@@ -313,7 +320,10 @@ function Sidebar({
             {navItems.map(item => (
               <button
                 key={item.id}
-                onClick={() => { setActiveTab(item.id); onClose() }}
+                onClick={() => { 
+                  setActiveTab(item.id)
+                  onClose() 
+                }}
                 className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
                   activeTab === item.id 
                     ? 'bg-brand-600 text-white' 
@@ -330,7 +340,10 @@ function Sidebar({
           {/* Footer */}
           <div className={`p-4 border-t border-dark-700 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
             <button 
-              onClick={() => { setActiveTab('settings'); onClose() }}
+              onClick={() => { 
+                setActiveTab('settings')
+                onClose() 
+              }}
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
                 activeTab === 'settings'
                   ? 'bg-brand-600 text-white'
@@ -948,7 +961,13 @@ function SettingsTab() {
 // Main Dashboard
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true) // Default to open on desktop
-  const [activeTab, setActiveTab] = useState('documents')
+  // Load activeTab from localStorage or default to 'documents'
+  const [activeTab, setActiveTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('activeTab') || 'documents'
+    }
+    return 'documents'
+  })
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
   const [documents, setDocuments] = useState<Document[]>([])
@@ -1373,7 +1392,10 @@ export default function DashboardPage() {
         onClose={() => setSidebarOpen(false)}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={(tab) => {
+          setActiveTab(tab)
+          localStorage.setItem('activeTab', tab)
+        }}
         projects={projects}
         currentProject={currentProject}
         setCurrentProject={setCurrentProject}
@@ -1382,14 +1404,9 @@ export default function DashboardPage() {
       />
 
       <main className="flex-1 min-w-0">
-        {/* Header */}
+        {/* Header - Empty, logo is in sidebar */}
         <div className="flex items-center justify-between p-4 border-b border-dark-700 bg-dark-800">
-          <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 bg-gradient-to-br from-brand-500 to-accent-secondary rounded flex items-center justify-center">
-              <Building2 className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold">Foreperson</span>
-          </div>
+          <div></div>
         </div>
 
         {/* Content */}
