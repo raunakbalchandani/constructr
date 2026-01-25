@@ -48,6 +48,60 @@ interface Project {
   documents: number
 }
 
+// Delete Project Confirmation Modal
+function DeleteProjectModal({
+  isOpen,
+  onClose,
+  onConfirm,
+  projectName
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+  projectName: string
+}) {
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const handleConfirm = async () => {
+    setIsDeleting(true)
+    await onConfirm()
+    setIsDeleting(false)
+    onClose()
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="bg-dark-800 rounded-lg border border-dark-700 p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-xl font-bold mb-2 text-red-400">Delete Project</h2>
+        <p className="text-dark-300 mb-4">
+          Are you sure you want to delete <span className="font-semibold text-white">"{projectName}"</span>? 
+          This will permanently delete the project and all its documents. This action cannot be undone.
+        </p>
+        <div className="flex justify-end space-x-3 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn-ghost"
+            disabled={isDeleting}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
+            disabled={isDeleting}
+          >
+            {isDeleting ? 'Deleting...' : 'Delete Project'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Add Project Modal
 function AddProjectModal({
   isOpen,
@@ -144,6 +198,7 @@ function Sidebar({
   currentProject: Project | null
   setCurrentProject: (project: Project) => void
   onAddProject: () => void
+  onDeleteProject: (projectId: string) => void
 }) {
   const navItems = [
     { id: 'documents', icon: FileText, label: 'Documents' },
@@ -187,14 +242,25 @@ function Sidebar({
           <div className="p-4 border-b border-dark-700">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs text-dark-400 uppercase tracking-wide">Project</label>
-              <button
-                onClick={onAddProject}
-                className="flex items-center space-x-1 px-2 py-1 text-xs text-brand-400 hover:text-brand-300 hover:bg-brand-500/10 rounded transition-colors"
-                title="Add new project"
-              >
-                <Plus className="w-4 h-4" />
-                <span>New</span>
-              </button>
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={onAddProject}
+                  className="flex items-center space-x-1 px-2 py-1 text-xs text-brand-400 hover:text-brand-300 hover:bg-brand-500/10 rounded transition-colors"
+                  title="Add new project"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>New</span>
+                </button>
+                {currentProject && projects.length > 1 && (
+                  <button
+                    onClick={() => onDeleteProject(currentProject.id)}
+                    className="flex items-center space-x-1 px-2 py-1 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded transition-colors"
+                    title="Delete project"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
             <div className="relative">
               <select 
@@ -842,6 +908,8 @@ export default function DashboardPage() {
   const [chatMessages, setChatMessages] = useState<Message[]>([])
   const [isChatLoading, setIsChatLoading] = useState(false)
   const [chatHistoryLoaded, setChatHistoryLoaded] = useState<{ [projectId: string]: boolean }>({})
+  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
 
   // Load projects on mount
   useEffect(() => {
@@ -1074,6 +1142,62 @@ export default function DashboardPage() {
     }
   }
 
+  const handleDeleteProject = async (projectId: string) => {
+    if (projects.length <= 1) {
+      alert('Cannot delete the last project. Please create another project first.')
+      return
+    }
+
+    setProjectToDelete(projects.find(p => p.id === projectId) || null)
+    setShowDeleteProjectModal(true)
+  }
+
+  const confirmDeleteProject = async () => {
+    if (!projectToDelete) return
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${projectToDelete.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        // Remove from projects list
+        setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
+        
+        // If deleted project was current, switch to another project
+        if (currentProject?.id === projectToDelete.id) {
+          const remainingProjects = projects.filter(p => p.id !== projectToDelete.id)
+          if (remainingProjects.length > 0) {
+            setCurrentProject(remainingProjects[0])
+          } else {
+            setCurrentProject(null)
+          }
+        }
+
+        // Clear chat history if it was the current project
+        if (currentProject?.id === projectToDelete.id) {
+          setChatMessages([])
+          setChatHistoryLoaded(prev => {
+            const updated = { ...prev }
+            delete updated[projectToDelete.id]
+            return updated
+          })
+        }
+
+        setShowDeleteProjectModal(false)
+        setProjectToDelete(null)
+      } else {
+        const error = await res.json()
+        alert(`Failed to delete project: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to delete project:', error)
+      alert('Failed to delete project. Please try again.')
+    }
+  }
+
   const handleUpload = async (files: FileList) => {
     if (!currentProject) return
     
@@ -1186,6 +1310,15 @@ export default function DashboardPage() {
         onClose={() => setShowAddProjectModal(false)}
         onAdd={handleAddProject}
       />
+      <DeleteProjectModal
+        isOpen={showDeleteProjectModal}
+        onClose={() => {
+          setShowDeleteProjectModal(false)
+          setProjectToDelete(null)
+        }}
+        onConfirm={confirmDeleteProject}
+        projectName={projectToDelete?.name || ''}
+      />
       <Sidebar 
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -1195,6 +1328,7 @@ export default function DashboardPage() {
         currentProject={currentProject}
         setCurrentProject={setCurrentProject}
         onAddProject={() => setShowAddProjectModal(true)}
+        onDeleteProject={handleDeleteProject}
       />
 
       <main className="flex-1 min-w-0">
