@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import Link from 'next/link'
 import { 
   Building2, 
   FileText, 
@@ -231,19 +232,16 @@ function Sidebar({
         <div className="flex flex-col h-full">
           {/* Logo and Toggle Button */}
           <div className="flex items-center justify-between p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0">
-            <button
-              onClick={() => {
-                setActiveTab('documents')
-                onClose()
-              }}
+            <Link
+              href="/"
               className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'} hover:opacity-80 transition-opacity cursor-pointer`}
-              title="Go to dashboard"
+              title="Go to homepage"
             >
               <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
                 <Building2 className="w-5 h-5 text-white" />
               </div>
               <span className="text-lg font-bold">Foreperson.ai</span>
-            </button>
+            </Link>
             {!isOpen && (
               <div className="hidden lg:flex flex-col items-center justify-center w-full space-y-2">
                 <button 
