@@ -23,9 +23,7 @@ import {
   X,
   Menu,
   Home,
-  FolderOpen,
-  PanelLeftClose,
-  PanelLeftOpen
+  FolderOpen
 } from 'lucide-react'
 
 // Types
@@ -185,6 +183,7 @@ function AddProjectModal({
 function Sidebar({ 
   isOpen, 
   onClose,
+  onToggle,
   activeTab,
   setActiveTab,
   projects,
@@ -195,6 +194,7 @@ function Sidebar({
 }: {
   isOpen: boolean
   onClose: () => void
+  onToggle: () => void
   activeTab: string
   setActiveTab: (tab: string) => void
   projects: Project[]
@@ -229,7 +229,7 @@ function Sidebar({
         lg:overflow-visible
       `}>
         <div className="flex flex-col h-full">
-          {/* Logo */}
+          {/* Logo and Toggle Button */}
           <div className="flex items-center justify-between p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0">
             <div className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'}`}>
               <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
@@ -238,9 +238,24 @@ function Sidebar({
               <span className="text-lg font-bold">Foreperson</span>
             </div>
             {!isOpen && (
-              <div className="hidden lg:flex items-center justify-center w-full">
-                <Building2 className="w-6 h-6 text-brand-400" />
+              <div className="hidden lg:flex flex-col items-center justify-center w-full space-y-2">
+                <button 
+                  onClick={onToggle}
+                  className="p-2 text-dark-300 hover:text-white transition-colors"
+                  title="Expand sidebar"
+                >
+                  <Menu className="w-6 h-6" />
+                </button>
               </div>
+            )}
+            {isOpen && (
+              <button 
+                onClick={onToggle}
+                className="hidden lg:flex p-2 text-dark-400 hover:text-white transition-colors"
+                title="Collapse sidebar"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
             )}
             <button onClick={onClose} className="lg:hidden text-dark-400 hover:text-white">
               <X className="w-5 h-5" />
@@ -1351,6 +1366,7 @@ export default function DashboardPage() {
       <Sidebar 
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         projects={projects}
@@ -1361,27 +1377,13 @@ export default function DashboardPage() {
       />
 
       <main className="flex-1 min-w-0">
-        {/* Header with sidebar toggle */}
+        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-dark-700 bg-dark-800">
-          <div className="flex items-center space-x-3">
-            {/* Sidebar toggle button - works on both mobile and desktop */}
-            <button 
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="p-2 text-dark-300 hover:text-white transition-colors"
-              title={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              {sidebarOpen ? (
-                <PanelLeftClose className="w-5 h-5 lg:w-6 lg:h-6" />
-              ) : (
-                <PanelLeftOpen className="w-5 h-5 lg:w-6 lg:h-6" />
-              )}
-            </button>
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 bg-gradient-to-br from-brand-500 to-accent-secondary rounded flex items-center justify-center">
-                <Building2 className="w-4 h-4 text-white" />
-              </div>
-              <span className="font-bold">Foreperson</span>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-6 bg-gradient-to-br from-brand-500 to-accent-secondary rounded flex items-center justify-center">
+              <Building2 className="w-4 h-4 text-white" />
             </div>
+            <span className="font-bold">Foreperson</span>
           </div>
         </div>
 
