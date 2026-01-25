@@ -841,6 +841,7 @@ export default function DashboardPage() {
   const [showAddProjectModal, setShowAddProjectModal] = useState(false)
   const [chatMessages, setChatMessages] = useState<Message[]>([])
   const [isChatLoading, setIsChatLoading] = useState(false)
+  const [chatHistoryLoaded, setChatHistoryLoaded] = useState<{ [projectId: string]: boolean }>({})
 
   // Load projects on mount
   useEffect(() => {
@@ -851,17 +852,22 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentProject) {
       loadDocuments()
-      loadChatHistory()
+      // Reset chat history loaded flag for new project
+      setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: false }))
     } else {
       setDocuments([])
       setChatMessages([])
     }
   }, [currentProject])
 
-  // Load chat history when switching to chat tab
+  // Load chat history when switching to chat tab or when project changes
   useEffect(() => {
     if (activeTab === 'chat' && currentProject) {
-      loadChatHistory()
+      // Only load if we haven't loaded for this project yet
+      if (!chatHistoryLoaded[currentProject.id]) {
+        loadChatHistory()
+        setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: true }))
+      }
     }
   }, [activeTab, currentProject])
 
@@ -919,6 +925,12 @@ export default function DashboardPage() {
   const loadChatHistory = async () => {
     if (!currentProject) return
     
+    // Don't reload if we already have messages for this project
+    const projectKey = currentProject.id
+    if (chatHistoryLoaded[projectKey] && chatMessages.length > 0) {
+      return
+    }
+    
     try {
       const token = localStorage.getItem('token')
       const res = await fetch(`/api/projects/${currentProject.id}/chat`, {
@@ -936,25 +948,41 @@ export default function DashboardPage() {
             timestamp: new Date(msg.created_at)
           }))
           setChatMessages(formattedMessages)
+          setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
         } else {
-          // No messages yet, show welcome message
-          setChatMessages([{
+          // No messages yet, show welcome message only if chat is empty
+          setChatMessages(prev => {
+            if (prev.length === 0 || (prev.length === 1 && prev[0].id === '1' && prev[0].role === 'assistant')) {
+              return [{
+                id: '1',
+                role: 'assistant',
+                content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
+                timestamp: new Date()
+              }]
+            }
+            return prev // Keep existing messages
+          })
+          setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
+        }
+      } else {
+        console.error('Failed to load chat history:', res.status)
+        // Don't reset messages on error - keep existing ones
+      }
+    } catch (error) {
+      console.error('Failed to load chat history:', error)
+      // Don't reset messages on error - keep existing ones
+      // Only set welcome message if chat is completely empty
+      setChatMessages(prev => {
+        if (prev.length === 0) {
+          return [{
             id: '1',
             role: 'assistant',
             content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
             timestamp: new Date()
-          }])
+          }]
         }
-      }
-    } catch (error) {
-      console.error('Failed to load chat history:', error)
-      // Show welcome message on error
-      setChatMessages([{
-        id: '1',
-        role: 'assistant',
-        content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
-        timestamp: new Date()
-      }])
+        return prev
+      })
     }
   }
 
@@ -1001,6 +1029,10 @@ export default function DashboardPage() {
       
       // Add assistant response (messages are already saved to DB by backend)
       setChatMessages(prev => [...prev, assistantMessage])
+      // Mark chat history as loaded so we don't reload unnecessarily
+      if (currentProject) {
+        setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: true }))
+      }
     } catch (error) {
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
