@@ -189,10 +189,11 @@ function Sidebar({
               <label className="text-xs text-dark-400 uppercase tracking-wide">Project</label>
               <button
                 onClick={onAddProject}
-                className="text-brand-400 hover:text-brand-300 transition-colors"
+                className="flex items-center space-x-1 px-2 py-1 text-xs text-brand-400 hover:text-brand-300 hover:bg-brand-500/10 rounded transition-colors"
                 title="Add new project"
               >
                 <Plus className="w-4 h-4" />
+                <span>New</span>
               </button>
             </div>
             <div className="relative">
@@ -413,17 +414,20 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
 }
 
 // Chat Tab
-function ChatTab({ documents, currentProject }: { documents: Document[]; currentProject: Project | null }) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
-      timestamp: new Date()
-    }
-  ])
+function ChatTab({ 
+  documents, 
+  currentProject,
+  messages,
+  isLoading,
+  onSendMessage
+}: { 
+  documents: Document[]
+  currentProject: Project | null
+  messages: Message[]
+  isLoading: boolean
+  onSendMessage: (message: string) => Promise<void>
+}) {
   const [input, setInput] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -436,52 +440,9 @@ function ChatTab({ documents, currentProject }: { documents: Document[]; current
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: new Date()
-    }
-
-    setMessages(prev => [...prev, userMessage])
+    const messageToSend = input
     setInput('')
-    setIsLoading(true)
-
-    try {
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          message: input,
-          project_id: currentProject ? parseInt(currentProject.id) : null
-        })
-      })
-
-      const data = await res.json()
-      
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.response || 'I apologize, but I encountered an error processing your request.',
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, assistantMessage])
-    } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again.',
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    await onSendMessage(messageToSend)
   }
 
   const quickActions = [
@@ -552,7 +513,7 @@ function ChatTab({ documents, currentProject }: { documents: Document[]; current
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder={documents.length ? "Ask about your documents..." : currentProject ? "Upload documents to this project first..." : "Select or create a project first..."}
-            disabled={!documents.length || !currentProject}
+            disabled={!documents.length || !currentProject || isLoading}
             className="input pr-12"
           />
           <button className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors">
@@ -878,6 +839,8 @@ export default function DashboardPage() {
   const [documents, setDocuments] = useState<Document[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [showAddProjectModal, setShowAddProjectModal] = useState(false)
+  const [chatMessages, setChatMessages] = useState<Message[]>([])
+  const [isChatLoading, setIsChatLoading] = useState(false)
 
   // Load projects on mount
   useEffect(() => {
@@ -888,10 +851,19 @@ export default function DashboardPage() {
   useEffect(() => {
     if (currentProject) {
       loadDocuments()
+      loadChatHistory()
     } else {
       setDocuments([])
+      setChatMessages([])
     }
   }, [currentProject])
+
+  // Load chat history when switching to chat tab
+  useEffect(() => {
+    if (activeTab === 'chat' && currentProject) {
+      loadChatHistory()
+    }
+  }, [activeTab, currentProject])
 
   const loadProjects = async () => {
     try {
@@ -941,6 +913,104 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error('Failed to load documents:', error)
+    }
+  }
+
+  const loadChatHistory = async () => {
+    if (!currentProject) return
+    
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/projects/${currentProject.id}/chat`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        if (data.messages && data.messages.length > 0) {
+          // Convert database messages to UI format
+          const formattedMessages = data.messages.map((msg: any) => ({
+            id: msg.id.toString(),
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.created_at)
+          }))
+          setChatMessages(formattedMessages)
+        } else {
+          // No messages yet, show welcome message
+          setChatMessages([{
+            id: '1',
+            role: 'assistant',
+            content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
+            timestamp: new Date()
+          }])
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load chat history:', error)
+      // Show welcome message on error
+      setChatMessages([{
+        id: '1',
+        role: 'assistant',
+        content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
+        timestamp: new Date()
+      }])
+    }
+  }
+
+  const handleSendMessage = async (message: string) => {
+    if (!currentProject || !message.trim()) return
+
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: message,
+      timestamp: new Date()
+    }
+
+    // Optimistically add user message
+    setChatMessages(prev => [...prev, userMessage])
+    setIsChatLoading(true)
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          message: message,
+          project_id: parseInt(currentProject.id)
+        })
+      })
+
+      if (!res.ok) {
+        throw new Error('Failed to send message')
+      }
+
+      const data = await res.json()
+      
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: data.response || 'I apologize, but I encountered an error processing your request.',
+        timestamp: new Date()
+      }
+      
+      // Add assistant response (messages are already saved to DB by backend)
+      setChatMessages(prev => [...prev, assistantMessage])
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'I apologize, but I encountered an error. Please try again.',
+        timestamp: new Date()
+      }
+      setChatMessages(prev => [...prev, errorMessage])
+    } finally {
+      setIsChatLoading(false)
     }
   }
 
@@ -1057,7 +1127,15 @@ export default function DashboardPage() {
       case 'documents':
         return <DocumentsTab documents={documents} onUpload={handleUpload} onDelete={handleDelete} />
       case 'chat':
-        return <ChatTab documents={documents} currentProject={currentProject} />
+        return (
+          <ChatTab 
+            documents={documents} 
+            currentProject={currentProject}
+            messages={chatMessages}
+            isLoading={isChatLoading}
+            onSendMessage={handleSendMessage}
+          />
+        )
       case 'conflicts':
         return <ConflictsTab documents={documents} />
       case 'compare':

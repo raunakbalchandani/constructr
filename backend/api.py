@@ -107,11 +107,30 @@ class DocumentResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     project_id: Optional[int] = None
-    project_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
     response: str
+    message_id: Optional[int] = None
+
+
+class ChatMessageResponse(BaseModel):
+    id: int
+    role: str
+    content: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatHistoryResponse(BaseModel):
+    id: int
+    messages: List[ChatMessageResponse]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class APIKeyUpdate(BaseModel):
@@ -498,6 +517,34 @@ async def chat(
                         "word_count": word_count
                     })
     
+    # Get or create chat session for this project
+    if not request.project_id:
+        raise HTTPException(status_code=400, detail="project_id is required")
+    
+    chat = db.query(Chat).filter(
+        Chat.project_id == request.project_id,
+        Chat.user_id == current_user.id
+    ).first()
+    
+    if not chat:
+        chat = Chat(
+            project_id=request.project_id,
+            user_id=current_user.id
+        )
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+    
+    # Save user message to database
+    user_message = ChatMessage(
+        chat_id=chat.id,
+        role="user",
+        content=request.message
+    )
+    db.add(user_message)
+    db.commit()
+    db.refresh(user_message)
+    
     # Create AI assistant and get response
     try:
         assistant = ConstructionAI(api_key=api_key)
@@ -507,12 +554,70 @@ async def chat(
             assistant.load_documents(doc_list)
         
         response = assistant.ask_question(request.message)
-        return {"response": response}
+        
+        # Save assistant response to database
+        assistant_message = ChatMessage(
+            chat_id=chat.id,
+            role="assistant",
+            content=response
+        )
+        db.add(assistant_message)
+        db.commit()
+        db.refresh(assistant_message)
+        
+        return {
+            "response": response,
+            "message_id": assistant_message.id
+        }
     except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"AI error: {str(e)}"
         )
+
+
+@app.get("/projects/{project_id}/chat", response_model=ChatHistoryResponse)
+async def get_chat_history(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get chat history for a project."""
+    # Verify project ownership
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Get or create chat
+    chat = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).first()
+    
+    if not chat:
+        # Create empty chat if none exists
+        chat = Chat(
+            project_id=project_id,
+            user_id=current_user.id
+        )
+        db.add(chat)
+        db.commit()
+        db.refresh(chat)
+    
+    # Get all messages ordered by creation time
+    messages = db.query(ChatMessage).filter(
+        ChatMessage.chat_id == chat.id
+    ).order_by(ChatMessage.created_at.asc()).all()
+    
+    return {
+        "id": chat.id,
+        "messages": messages,
+        "created_at": chat.created_at
+    }
 
 
 # ============ Helper Functions ============
