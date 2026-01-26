@@ -7,3 +7,14 @@ python-multipart==0.0.6
 pydantic[email]==2.5.2
 SQLAlchemy==2.0.23
 aiosqlite==0.19.0
+
+# Document processing
+pymupdf==1.23.8
+pdfplumber==0.10.3
+python-docx==1.1.0
+openpyxl==3.1.2
+pandas==2.1.4
+
+# OCR support
+pytesseract==0.3.10
+Pillow==10.2.0
