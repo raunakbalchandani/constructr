@@ -433,22 +433,22 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
 
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400" />
+        <div className="relative flex-1 min-w-0">
+          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search documents..."
-            className="input pl-10"
+            className="input pl-11 pr-4"
           />
         </div>
-        <div className="relative">
-          <Filter className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400" />
+        <div className="relative sm:min-w-[180px]">
+          <Filter className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
-            className="input pl-10 pr-10 appearance-none cursor-pointer"
+            className="input pl-11 pr-10 appearance-none cursor-pointer"
           >
             {documentTypes.map(type => (
               <option key={type} value={type}>
@@ -456,7 +456,7 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
               </option>
             ))}
           </select>
-          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
+          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
         </div>
       </div>
 
