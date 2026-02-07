@@ -3,7 +3,7 @@ FastAPI REST API
 """
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -23,6 +23,10 @@ from backend.auth import (
     get_password_hash
 )
 from backend.storage import save_file, get_file, delete_file
+
+# Storage backend flag (local vs s3)
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local").strip().lower()
+
 
 # Import document parser and AI assistant from parent
 try:
@@ -404,24 +408,44 @@ async def download_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Download a document."""
+    """Download a document.
+
+    - local backend: serves from filesystem path
+    - s3 backend: streams object bytes through API
+
+    (We can switch to pre-signed URLs later if desired.)
+    """
     # Verify ownership
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user.id
     ).first()
-    
+
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
+
     document = db.query(Document).filter(
         Document.id == document_id,
         Document.project_id == project_id
     ).first()
-    
+
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
-    
+
+    if STORAGE_BACKEND == "s3":
+        # document.file_path stores S3 key
+        content = get_file(document.file_path)
+        if content is None:
+            raise HTTPException(status_code=404, detail="File not found in storage")
+
+        return StreamingResponse(
+            iter([content]),
+            media_type=document.mime_type or "application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{document.original_filename}\""
+            },
+        )
+
     return FileResponse(
         document.file_path,
         filename=document.original_filename,
