@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
+from pathlib import Path
 import os
 import sys
 
@@ -351,7 +352,30 @@ async def upload_document(
     if DocumentParser:
         try:
             parser = DocumentParser()
-            result = parser.parse_document(file_info["file_path"])
+
+            # DocumentParser expects a local file path. When using S3 storage,
+            # file_info["file_path"] is an S3 key, so we download to a temp file first.
+            parse_path = file_info["file_path"]
+            tmp_path = None
+            try:
+                if STORAGE_BACKEND == "s3":
+                    blob = get_file(file_info["file_path"])
+                    if blob is None:
+                        raise ValueError("File not found in storage")
+                    import tempfile
+                    suffix = Path(file_info["original_filename"]).suffix or ""
+                    fd, tmp_path = tempfile.mkstemp(prefix="foreperson-", suffix=suffix)
+                    with os.fdopen(fd, "wb") as f:
+                        f.write(blob)
+                    parse_path = tmp_path
+
+                result = parser.parse_document(parse_path)
+            finally:
+                if tmp_path:
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
             extracted_text = result.get('text_content', '')
             if not extracted_text:
                 # Try alternative key
