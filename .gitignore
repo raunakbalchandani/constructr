@@ -1,6 +1,16 @@
+# Dependencies / builds
 node_modules/
 .next/
+
+# Python virtual env + caches
 .venv/
 __pycache__/
+.pytest_cache/
+
+# Local databases / secrets
 *.db
 .env
+.env.*
+
+# Logs
+*.log
