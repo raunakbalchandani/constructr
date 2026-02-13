@@ -21,3 +21,4 @@ pandas==2.1.4
 # OCR support
 pytesseract==0.3.10
 Pillow==10.2.0
+argon2-cffi==23.1.0
