@@ -380,18 +380,59 @@ def _extract_pdf(file_path: str) -> str:
 
 
 def _extract_docx(file_path: str) -> str:
-    if not HAS_DOCX:
-        return 'Error: python-docx not installed'
+    import tempfile
+    import zipfile
+
+    parts: List[str] = []
+
+    # 1. Extract text from paragraphs and tables
+    if HAS_DOCX:
+        try:
+            doc = DocxDocument(file_path)
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    parts.append(p.text)
+            for table in doc.tables:
+                for row in table.rows:
+                    row_text = '\t'.join(c.text for c in row.cells if c.text.strip())
+                    if row_text.strip():
+                        parts.append(row_text)
+        except Exception as e:
+            logger.warning('DOCX text extraction error: %s', e)
+
+    # 2. Extract embedded images (DOCX is a ZIP — images live in word/media/)
     try:
-        doc = DocxDocument(file_path)
-        parts: List[str] = [p.text for p in doc.paragraphs if p.text.strip()]
-        for table in doc.tables:
-            for row in table.rows:
-                parts.append('\t'.join(c.text for c in row.cells))
-        return '\n'.join(parts)
+        with zipfile.ZipFile(file_path, 'r') as z:
+            media = [n for n in z.namelist() if n.startswith('word/media/')]
+            if media:
+                logger.info('DOCX contains %d embedded image(s)', len(media))
+            for img_name in media:
+                ext = Path(img_name).suffix.lower()
+                # Skip vector/meta formats Tesseract/vision can't handle
+                if ext in ('.wmf', '.emf'):
+                    parts.append(f'[Embedded vector graphic: {Path(img_name).name} — cannot extract text]')
+                    continue
+                img_data = z.read(img_name)
+                with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                    tmp.write(img_data)
+                    tmp_path = tmp.name
+                try:
+                    img_text = extract_text_from_image(tmp_path)
+                    if img_text:
+                        parts.append(f'[Embedded image: {Path(img_name).name}]\n{img_text}')
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+    except zipfile.BadZipFile:
+        pass  # Not a valid zip/docx
     except Exception as e:
-        logger.error('DOCX error: %s', e)
-        return ''
+        logger.warning('DOCX image extraction error: %s', e)
+
+    if not parts:
+        return '[Document contains no extractable text. It may consist entirely of embedded graphics that could not be read.]'
+    return '\n'.join(parts)
 
 
 def _extract_excel(file_path: str) -> str:

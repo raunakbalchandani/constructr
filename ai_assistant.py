@@ -252,7 +252,7 @@ Brief description of the document's purpose
 Project documents:
 {context}
 
-Answer using the documents above where relevant. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
+Answer using the documents above where relevant. If a document appears to contain a map, drawing, or image that was analyzed by vision, describe what was found and answer the question based on that. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
         else:
             prompt = f"""Question: {question}
 
