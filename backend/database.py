@@ -1,7 +1,7 @@
 """
 Database models and connection - SQLite version
 """
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Index
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -116,10 +116,14 @@ class ProjectMemory(Base):
     fact_key = Column(String(255), nullable=False)
     fact_value = Column(Text, nullable=False)
     confidence = Column(String(20), default="medium")  # "high" or "medium"
-    source_thread_id = Column(Integer, nullable=True)
+    source_thread_id = Column(Integer, ForeignKey("chats.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    __table_args__ = (Index('ix_projectmemory_project_id', 'project_id'),)
+    __table_args__ = (
+        Index('ix_projectmemory_project_id', 'project_id'),
+        UniqueConstraint('project_id', 'fact_key', name='uq_projectmemory_project_fact_key'),
+    )
 
     project = relationship("Project", back_populates="memories")
 
