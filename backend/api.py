@@ -1,7 +1,7 @@
 """
 FastAPI REST API
 """
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -463,11 +463,56 @@ async def delete_document(
 
 # ============ Chat Routes ============
 
+def _extract_and_save_facts(
+    assistant,
+    question: str,
+    response: str,
+    project_id: int,
+    chat_id: int,
+):
+    """Background task: extract facts from a Q&A exchange and upsert into ProjectMemory."""
+    # Need a fresh DB session since this runs outside the request context
+    from backend.database import SessionLocal
+    db = SessionLocal()
+    try:
+        facts = assistant.extract_facts(question, response)
+        for fact in facts:
+            key = str(fact.get("key", "")).strip()
+            value = str(fact.get("value", "")).strip()
+            confidence = str(fact.get("confidence", "medium")).strip()
+            if not key or not value:
+                continue
+            existing = db.query(ProjectMemory).filter(
+                ProjectMemory.project_id == project_id,
+                ProjectMemory.fact_key == key,
+            ).first()
+            if existing:
+                existing.fact_value = value
+                existing.confidence = confidence
+                existing.source_thread_id = chat_id
+            else:
+                db.add(ProjectMemory(
+                    project_id=project_id,
+                    fact_key=key,
+                    fact_value=value,
+                    confidence=confidence,
+                    source_thread_id=chat_id,
+                ))
+        db.commit()
+        if facts:
+            logger.info("Memory: saved %d fact(s) for project %d", len(facts), project_id)
+    except Exception as e:
+        logger.warning("Memory: failed to save facts: %s", e)
+    finally:
+        db.close()
+
+
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit(CHAT_RATE_LIMIT)
 async def chat(
     request: Request,
     chat_request: ChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -588,35 +633,15 @@ async def chat(
         db.commit()
         db.refresh(assistant_message)
 
-        # Extract facts from this exchange and upsert into project memory
-        try:
-            facts = assistant.extract_facts(chat_request.message, response)
-            for fact in facts:
-                key = str(fact.get("key", "")).strip()
-                value = str(fact.get("value", "")).strip()
-                confidence = str(fact.get("confidence", "medium")).strip()
-                if not key or not value:
-                    continue
-                existing = db.query(ProjectMemory).filter(
-                    ProjectMemory.project_id == chat_request.project_id,
-                    ProjectMemory.fact_key == key,
-                ).first()
-                if existing:
-                    existing.fact_value = value
-                    existing.confidence = confidence
-                    existing.source_thread_id = chat.id
-                else:
-                    db.add(ProjectMemory(
-                        project_id=chat_request.project_id,
-                        fact_key=key,
-                        fact_value=value,
-                        confidence=confidence,
-                        source_thread_id=chat.id,
-                    ))
-            db.commit()
-        except Exception as e:
-            logger.warning("Memory: failed to save facts: %s", e)
-            # Non-fatal — don't fail the response
+        # Schedule fact extraction in background (non-blocking)
+        background_tasks.add_task(
+            _extract_and_save_facts,
+            assistant,
+            chat_request.message,
+            response,
+            chat_request.project_id,
+            chat.id,
+        )
 
         return {
             "response": response,

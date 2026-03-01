@@ -513,8 +513,8 @@ Return format (JSON array only, no markdown, no explanation):
             if raw.startswith("```"):
                 parts = raw.split("```")
                 raw = parts[1] if len(parts) > 1 else raw
-                if raw.startswith("json"):
-                    raw = raw[4:]
+                if raw.lower().startswith("json"):
+                    raw = raw[len("json"):]
             raw = raw.strip()
             if not raw or raw == "[]":
                 return []
