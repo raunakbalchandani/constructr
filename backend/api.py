@@ -558,6 +558,12 @@ async def chat(
     raw_history.reverse()  # restore chronological order
     chat_history = [{"role": m.role, "content": m.content} for m in raw_history]
 
+    # Load cross-thread project memory
+    memories = db.query(ProjectMemory).filter(
+        ProjectMemory.project_id == chat_request.project_id
+    ).order_by(ProjectMemory.updated_at.desc()).all()
+    memory_list = [{"fact_key": m.fact_key, "fact_value": m.fact_value} for m in memories]
+
     # Create AI assistant and get response
     try:
         assistant = ConstructionAI(model=chat_request.model)
@@ -566,8 +572,12 @@ async def chat(
         if doc_list:
             assistant.load_documents(doc_list)
 
-        response = assistant.ask_question(chat_request.message, history=chat_history)
-        
+        response = assistant.ask_question(
+            chat_request.message,
+            history=chat_history,
+            project_memory=memory_list,
+        )
+
         # Save assistant response to database
         assistant_message = ChatMessage(
             chat_id=chat.id,
@@ -577,7 +587,37 @@ async def chat(
         db.add(assistant_message)
         db.commit()
         db.refresh(assistant_message)
-        
+
+        # Extract facts from this exchange and upsert into project memory
+        try:
+            facts = assistant.extract_facts(chat_request.message, response)
+            for fact in facts:
+                key = str(fact.get("key", "")).strip()
+                value = str(fact.get("value", "")).strip()
+                confidence = str(fact.get("confidence", "medium")).strip()
+                if not key or not value:
+                    continue
+                existing = db.query(ProjectMemory).filter(
+                    ProjectMemory.project_id == chat_request.project_id,
+                    ProjectMemory.fact_key == key,
+                ).first()
+                if existing:
+                    existing.fact_value = value
+                    existing.confidence = confidence
+                    existing.source_thread_id = chat.id
+                else:
+                    db.add(ProjectMemory(
+                        project_id=chat_request.project_id,
+                        fact_key=key,
+                        fact_value=value,
+                        confidence=confidence,
+                        source_thread_id=chat.id,
+                    ))
+            db.commit()
+        except Exception as e:
+            logger.warning("Memory: failed to save facts: %s", e)
+            # Non-fatal — don't fail the response
+
         return {
             "response": response,
             "message_id": assistant_message.id

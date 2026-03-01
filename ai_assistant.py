@@ -246,6 +246,7 @@ class ConstructionAI:
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
         history=None,
+        system_prompt=None,
         **kwargs,
     ) -> str:
         """Send a vision request via OpenAI (gpt-4o / gpt-4o-mini support vision)."""
@@ -260,7 +261,7 @@ class ConstructionAI:
                     },
                 })
 
-        vision_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        vision_messages = [{"role": "system", "content": system_prompt or SYSTEM_PROMPT}]
         if history:
             for h in history[-CHAT_HISTORY_WINDOW:]:
                 vision_messages.append({"role": h["role"], "content": h["content"]})
@@ -280,6 +281,7 @@ class ConstructionAI:
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
         history=None,
+        system_prompt=None,
         **kwargs,
     ) -> str:
         """Send a vision request via Anthropic (claude-3 / claude-4 support vision)."""
@@ -307,7 +309,7 @@ class ConstructionAI:
         response = provider._client.messages.create(
             model=provider._model,
             max_tokens=kwargs.get("max_tokens", 2000),
-            system=SYSTEM_PROMPT,
+            system=system_prompt or SYSTEM_PROMPT,
             messages=chat_messages,
         )
         return response.content[0].text
@@ -317,6 +319,7 @@ class ConstructionAI:
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
         history=None,
+        system_prompt=None,
         **kwargs,
     ) -> str:
         """Try each provider in order using vision API; fall back on quota errors."""
@@ -324,9 +327,9 @@ class ConstructionAI:
         for provider in self._providers:
             try:
                 if isinstance(provider, OpenAIProvider):
-                    return self._vision_openai(provider, text_prompt, images_by_doc, history=history, **kwargs)
+                    return self._vision_openai(provider, text_prompt, images_by_doc, history=history, system_prompt=system_prompt, **kwargs)
                 elif isinstance(provider, AnthropicProvider):
-                    return self._vision_anthropic(provider, text_prompt, images_by_doc, history=history, **kwargs)
+                    return self._vision_anthropic(provider, text_prompt, images_by_doc, history=history, system_prompt=system_prompt, **kwargs)
             except Exception as e:
                 if _is_quota_error(e):
                     logger.warning(
@@ -475,6 +478,53 @@ Content:
                 )
         return result
 
+    def extract_facts(self, question: str, answer: str) -> list:
+        """Extract key facts from a Q&A exchange for cross-thread memory.
+
+        Returns list of {"key": str, "value": str, "confidence": "high"|"medium"} dicts.
+        Returns [] on failure or if nothing important found.
+        """
+        prompt = f"""Extract important facts from this exchange. Return ONLY a JSON array — nothing else.
+
+User: {question[:2000]}
+Assistant: {answer[:2000]}
+
+Extract:
+- User corrections ("actually there are 40 buildings" → key: "building_count", value: "40", confidence: "high")
+- Confirmed numbers/values ("contract is $2.5M" → key: "contract_value", value: "$2.5M", confidence: "medium")
+- Named entities ("Building A is the main structure" → key: "building_a_description", value: "main structure", confidence: "medium")
+- Deadlines/dates ("completion is March 2026" → key: "completion_date", value: "March 2026", confidence: "medium")
+
+If the user corrects the AI, use confidence "high". Otherwise "medium".
+If no important facts, return [].
+
+Return format (JSON array only, no markdown, no explanation):
+[{{"key": "snake_case_key", "value": "the value", "confidence": "high"}}]"""
+
+        try:
+            import json
+            raw = self._complete(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.1,
+            )
+            raw = raw.strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw = parts[1] if len(parts) > 1 else raw
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            raw = raw.strip()
+            if not raw or raw == "[]":
+                return []
+            facts = json.loads(raw)
+            if isinstance(facts, list):
+                return [f for f in facts if isinstance(f, dict) and "key" in f and "value" in f]
+        except Exception as e:
+            logger.warning("Memory: fact extraction failed: %s", e)
+        return []
+
     # ── Error formatting ─────────────────────────────────────────
 
     def _handle_api_error(self, e: Exception) -> str:
@@ -551,6 +601,13 @@ Brief description of the document's purpose
         except Exception as e:
             return self._handle_api_error(e)
 
+    def _build_system_prompt(self, project_memory: list = None) -> str:
+        """Build system prompt, optionally injecting known project facts."""
+        if not project_memory:
+            return SYSTEM_PROMPT
+        facts_text = "\n".join(f"- {m['fact_key']}: {m['fact_value']}" for m in project_memory)
+        return SYSTEM_PROMPT + f"\n\nKnown project facts (verified across conversations):\n{facts_text}"
+
     def _build_messages(self, system: str, prompt: str, history: list = None) -> list:
         """Build the messages array with optional conversation history.
 
@@ -563,7 +620,7 @@ Brief description of the document's purpose
         msgs.append({"role": "user", "content": prompt})
         return msgs
 
-    def ask_question(self, question: str, history: list = None) -> str:
+    def ask_question(self, question: str, history: list = None, project_memory: list = None) -> str:
         """Answer a construction question, optionally grounded in uploaded documents."""
         try:
             if self.documents:
@@ -606,7 +663,10 @@ Answer using the documents where relevant. Where drawings or images are provided
                 if images_by_doc:
                     try:
                         return self._complete_with_vision(
-                            prompt, images_by_doc, history=history, max_tokens=2000, temperature=0.4
+                            prompt, images_by_doc,
+                            history=history,
+                            system_prompt=self._build_system_prompt(project_memory),
+                            max_tokens=2000, temperature=0.4
                         )
                     except Exception as e:
                         logger.warning(
@@ -614,14 +674,14 @@ Answer using the documents where relevant. Where drawings or images are provided
                         )
 
                 return self._complete(
-                    messages=self._build_messages(SYSTEM_PROMPT, prompt, history),
+                    messages=self._build_messages(self._build_system_prompt(project_memory), prompt, history),
                     max_tokens=2000,
                     temperature=0.4,
                 )
             else:
                 return self._complete(
                     messages=self._build_messages(
-                        SYSTEM_PROMPT,
+                        self._build_system_prompt(project_memory),
                         f"Question: {question}\n\nAnswer from your construction expertise. Be direct and specific.",
                         history,
                     ),
