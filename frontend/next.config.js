@@ -1,16 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone', // For deployment
+  output: 'standalone',
   images: {
-    unoptimized: true, // For static export if needed
-  },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:8000/:path*', // Proxy to FastAPI backend
-      },
-    ]
+    unoptimized: true,
   },
 }
 
