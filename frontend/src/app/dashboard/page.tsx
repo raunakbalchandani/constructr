@@ -3,12 +3,13 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import { useTheme } from 'next-themes'
 import * as api from '@/lib/api'
-import { 
-  Building2, 
-  FileText, 
-  MessageSquare, 
-  Upload, 
+import {
+  Building2,
+  FileText,
+  MessageSquare,
+  Upload,
   Search,
   Settings,
   LogOut,
@@ -26,7 +27,9 @@ import {
   X,
   Menu,
   Home,
-  FolderOpen
+  FolderOpen,
+  Sun,
+  Moon
 } from 'lucide-react'
 
 // Types
@@ -49,6 +52,29 @@ interface Project {
   id: string
   name: string
   documents: number
+}
+
+// Theme Toggle
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  if (!mounted) return null
+
+  const isDark = theme === 'dark'
+  return (
+    <button
+      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      title={isDark ? 'Switch to Light' : 'Switch to Dark'}
+      aria-label={isDark ? 'Switch to Light' : 'Switch to Dark'}
+      className="p-1.5 rounded-lg transition-theme"
+      style={{ color: 'var(--text-secondary)' }}
+      onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
+      onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
+    >
+      {isDark ? <Sun size={16} /> : <Moon size={16} />}
+    </button>
+  )
 }
 
 // Delete Project Confirmation Modal
@@ -76,10 +102,14 @@ function DeleteProjectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-dark-800 rounded-lg border border-dark-700 p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="rounded-lg p-6 w-full max-w-md"
+        style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <h2 className="text-xl font-bold mb-2 text-red-400">Delete Project</h2>
-        <p className="text-dark-300 mb-4">
-          Are you sure you want to delete <span className="font-semibold text-white">"{projectName}"</span>? 
+        <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
+          Are you sure you want to delete <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>"{projectName}"</span>?
           This will permanently delete the project and all its documents. This action cannot be undone.
         </p>
         <div className="flex justify-end space-x-3 pt-4">
@@ -122,7 +152,7 @@ function AddProjectModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    
+
     setIsLoading(true)
     await onAdd(name.trim(), description.trim() || undefined)
     setIsLoading(false)
@@ -135,11 +165,15 @@ function AddProjectModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-dark-800 rounded-lg border border-dark-700 p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
-        <h2 className="text-xl font-bold mb-4">Create New Project</h2>
+      <div
+        className="rounded-lg p-6 w-full max-w-md"
+        style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Create New Project</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm text-dark-300 mb-2">Project Name *</label>
+            <label className="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Project Name *</label>
             <input
               type="text"
               value={name}
@@ -151,7 +185,7 @@ function AddProjectModal({
             />
           </div>
           <div>
-            <label className="block text-sm text-dark-300 mb-2">Description (optional)</label>
+            <label className="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Description (optional)</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -183,8 +217,8 @@ function AddProjectModal({
 }
 
 // Sidebar
-function Sidebar({ 
-  isOpen, 
+function Sidebar({
+  isOpen,
   onClose,
   onToggle,
   activeTab,
@@ -217,23 +251,32 @@ function Sidebar({
     <>
       {/* Mobile overlay */}
       {isOpen && (
-        <div 
+        <div
           className="lg:hidden fixed inset-0 bg-black/50 z-40"
           onClick={onClose}
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`
-        fixed lg:static inset-y-0 left-0 z-50
-        ${isOpen ? 'w-64' : 'w-0 lg:w-16'} bg-dark-800 border-r border-dark-700
-        transform transition-all duration-200 overflow-hidden
-        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-        lg:overflow-visible
-      `}>
+      <aside
+        className={`
+          fixed lg:static inset-y-0 left-0 z-50
+          ${isOpen ? 'w-64' : 'w-0 lg:w-16'}
+          transform transition-all duration-200 overflow-hidden
+          ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
+          lg:overflow-visible
+        `}
+        style={{
+          backgroundColor: 'var(--surface)',
+          borderRight: '1px solid var(--border)'
+        }}
+      >
         <div className="flex flex-col h-full">
           {/* Logo and Toggle Button */}
-          <div className="flex items-center justify-between p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0">
+          <div
+            className="flex items-center justify-between p-4 min-w-[256px] lg:min-w-0"
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
             <Link
               href="/"
               className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'} hover:opacity-80 transition-opacity cursor-pointer`}
@@ -242,13 +285,16 @@ function Sidebar({
               <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
                 <Building2 className="w-5 h-5 text-white" />
               </div>
-              <span className="text-lg font-bold">Foreperson.ai</span>
+              <span className="text-lg font-bold" style={{ color: 'var(--accent)' }}>Foreperson.ai</span>
             </Link>
             {!isOpen && (
               <div className="hidden lg:flex flex-col items-center justify-center w-full space-y-2">
-                <button 
+                <button
                   onClick={onToggle}
-                  className="p-2 text-dark-300 hover:text-white transition-colors"
+                  className="p-2 transition-theme"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
                   title="Expand sidebar"
                 >
                   <Menu className="w-6 h-6" />
@@ -256,27 +302,47 @@ function Sidebar({
               </div>
             )}
             {isOpen && (
-              <button 
+              <button
                 onClick={onToggle}
-                className="hidden lg:flex p-2 text-dark-400 hover:text-white transition-colors"
+                className="hidden lg:flex p-2 transition-theme"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
                 title="Collapse sidebar"
               >
                 <Menu className="w-5 h-5" />
               </button>
             )}
-            <button onClick={onClose} className="lg:hidden text-dark-400 hover:text-white">
+            <button
+              onClick={onClose}
+              className="lg:hidden transition-theme"
+              style={{ color: 'var(--text-secondary)' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           {/* Project Selector */}
-          <div className={`p-4 border-b border-dark-700 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
+          <div
+            className={`p-4 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}
+            style={{ borderBottom: '1px solid var(--border)' }}
+          >
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-dark-400 uppercase tracking-wide">Project</label>
+              <label
+                className="text-xs uppercase tracking-widest"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                Project
+              </label>
               <div className="flex items-center space-x-1">
                 <button
                   onClick={onAddProject}
-                  className="flex items-center space-x-1 px-2 py-1 text-xs text-brand-400 hover:text-brand-300 hover:bg-brand-500/10 rounded transition-colors"
+                  className="flex items-center space-x-1 px-2 py-1 text-xs rounded transition-theme"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
                   title="Add new project"
                 >
                   <Plus className="w-4 h-4" />
@@ -285,11 +351,12 @@ function Sidebar({
                 {currentProject && (
                   <button
                     onClick={() => onDeleteProject(currentProject.id)}
-                    className={`flex items-center space-x-1 px-2 py-1 text-xs rounded transition-colors ${
+                    className={`flex items-center space-x-1 px-2 py-1 text-xs rounded transition-theme ${
                       projects.length > 1
-                        ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10'
-                        : 'text-dark-500 cursor-not-allowed opacity-50'
+                        ? ''
+                        : 'opacity-50 cursor-not-allowed'
                     }`}
+                    style={{ color: projects.length > 1 ? '#f87171' : 'var(--text-secondary)' }}
                     title={projects.length > 1 ? "Delete project" : "Cannot delete the last project"}
                     disabled={projects.length <= 1}
                   >
@@ -299,72 +366,137 @@ function Sidebar({
               </div>
             </div>
             <div className="relative">
-              <select 
+              <select
                 value={currentProject?.id || ''}
                 onChange={(e) => {
                   const proj = projects.find(p => p.id === e.target.value)
                   if (proj) setCurrentProject(proj)
                 }}
-                className="w-full px-3 py-2 bg-dark-700 border border-dark-600 rounded-lg text-white appearance-none cursor-pointer focus:border-brand-500 focus:ring-1 focus:ring-brand-500"
+                className="input w-full appearance-none cursor-pointer"
               >
                 {projects.map(proj => (
                   <option key={proj.id} value={proj.id}>{proj.name}</option>
                 ))}
               </select>
-              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none" />
+              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
             </div>
           </div>
 
           {/* Navigation */}
           <nav className={`flex-1 p-4 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
-            {navItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => { 
-                  setActiveTab(item.id)
-                  onClose() 
-                }}
-                className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
-                  activeTab === item.id 
-                    ? 'bg-brand-600 text-white' 
-                    : 'text-dark-300 hover:bg-dark-700 hover:text-white'
-                }`}
-                title={!isOpen ? item.label : undefined}
-              >
-                <item.icon className="w-5 h-5 flex-shrink-0" />
-                <span className={isOpen ? '' : 'lg:hidden'}>{item.label}</span>
-              </button>
-            ))}
+            <p className="text-xs uppercase tracking-widest mb-3 px-1" style={{ color: 'var(--text-secondary)' }}>
+              Navigation
+            </p>
+            {navItems.map(item => {
+              const isActive = activeTab === item.id
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id)
+                    onClose()
+                  }}
+                  className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme"
+                  style={
+                    isActive
+                      ? {
+                          backgroundColor: 'var(--card)',
+                          borderLeft: '2px solid var(--accent)',
+                          color: 'var(--text-primary)'
+                        }
+                      : {
+                          borderLeft: '2px solid transparent',
+                          color: 'var(--text-secondary)'
+                        }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                    }
+                  }}
+                  title={!isOpen ? item.label : undefined}
+                >
+                  <item.icon className="w-5 h-5 flex-shrink-0" />
+                  <span className={isOpen ? '' : 'lg:hidden'}>{item.label}</span>
+                </button>
+              )
+            })}
           </nav>
 
           {/* Footer */}
-          <div className={`p-4 border-t border-dark-700 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
-            <button 
-              onClick={() => { 
-                setActiveTab('settings')
-                onClose() 
-              }}
-              className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${
-                activeTab === 'settings'
-                  ? 'bg-brand-600 text-white'
-                  : 'text-dark-300 hover:bg-dark-700 hover:text-white'
-              }`}
-              title={!isOpen ? 'Settings' : undefined}
-            >
-              <Settings className="w-5 h-5 flex-shrink-0" />
-              <span className={isOpen ? '' : 'lg:hidden'}>Settings</span>
-            </button>
-            <button 
-              onClick={() => {
-                localStorage.removeItem('token')
-                window.location.href = '/login'
-              }}
-              className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-dark-300 hover:bg-dark-700 hover:text-white transition-colors"
-              title={!isOpen ? 'Sign out' : undefined}
-            >
-              <LogOut className="w-5 h-5 flex-shrink-0" />
-              <span className={isOpen ? '' : 'lg:hidden'}>Sign out</span>
-            </button>
+          <div
+            className={`p-4 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}
+            style={{ borderTop: '1px solid var(--border)' }}
+          >
+            {/* Settings nav item */}
+            {(() => {
+              const isActive = activeTab === 'settings'
+              return (
+                <button
+                  onClick={() => {
+                    setActiveTab('settings')
+                    onClose()
+                  }}
+                  className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme"
+                  style={
+                    isActive
+                      ? {
+                          backgroundColor: 'var(--card)',
+                          borderLeft: '2px solid var(--accent)',
+                          color: 'var(--text-primary)'
+                        }
+                      : {
+                          borderLeft: '2px solid transparent',
+                          color: 'var(--text-secondary)'
+                        }
+                  }
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                    }
+                  }}
+                  title={!isOpen ? 'Settings' : undefined}
+                >
+                  <Settings className="w-5 h-5 flex-shrink-0" />
+                  <span className={isOpen ? '' : 'lg:hidden'}>Settings</span>
+                </button>
+              )
+            })()}
+
+            {/* Sign out + ThemeToggle row */}
+            <div className="flex items-center justify-between pt-1">
+              <button
+                onClick={() => {
+                  localStorage.removeItem('token')
+                  window.location.href = '/login'
+                }}
+                className="flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme flex-1"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
+                  ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+                }}
+                title={!isOpen ? 'Sign out' : undefined}
+              >
+                <LogOut className="w-5 h-5 flex-shrink-0" />
+                <span className={isOpen ? '' : 'lg:hidden'}>Sign out</span>
+              </button>
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </aside>
@@ -373,7 +505,7 @@ function Sidebar({
 }
 
 // Documents Tab
-function DocumentsTab({ documents, onUpload, onDelete }: { 
+function DocumentsTab({ documents, onUpload, onDelete }: {
   documents: Document[]
   onUpload: (files: FileList) => void
   onDelete: (id: string) => void
@@ -412,10 +544,10 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Documents</h1>
-          <p className="text-dark-400">{documents.length} files uploaded</p>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Documents</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>{documents.length} files uploaded</p>
         </div>
-        <button 
+        <button
           onClick={() => fileInputRef.current?.click()}
           className="btn-primary flex items-center space-x-2"
         >
@@ -435,7 +567,7 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
       {/* Search and Filter */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1 min-w-0">
-          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
+          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
           <input
             type="text"
             value={searchQuery}
@@ -445,7 +577,7 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
           />
         </div>
         <div className="relative sm:min-w-[180px]">
-          <Filter className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
+          <Filter className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
@@ -457,7 +589,7 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
               </option>
             ))}
           </select>
-          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 pointer-events-none z-10" />
+          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
         </div>
       </div>
 
@@ -467,55 +599,64 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
-          isDragging 
-            ? 'border-brand-500 bg-brand-500/10' 
-            : 'border-dark-600 hover:border-dark-500 hover:bg-dark-800/50'
-        }`}
+        className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-theme"
+        style={{
+          borderColor: isDragging ? 'var(--accent)' : 'var(--border)',
+          backgroundColor: isDragging ? 'var(--glow)' : 'transparent'
+        }}
+        onMouseEnter={(e) => {
+          if (!isDragging) {
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--text-secondary)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          if (!isDragging) {
+            (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'
+          }
+        }}
       >
-        <Upload className="w-12 h-12 text-dark-400 mx-auto mb-4" />
-        <p className="text-dark-300 mb-2">
-          Drag and drop files here, or <span className="text-brand-400">browse</span>
+        <Upload className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
+        <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>
+          Drag and drop files here, or <span style={{ color: 'var(--accent)' }}>browse</span>
         </p>
-        <p className="text-sm text-dark-500">Supports PDF, DOCX, XLSX</p>
+        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Supports PDF, DOCX, XLSX</p>
       </div>
 
       {/* Document List */}
       {filteredDocs.length === 0 ? (
         <div className="card text-center py-12">
-          <FileText className="w-12 h-12 text-dark-500 mx-auto mb-4" />
-          <p className="text-dark-400">No documents found</p>
+          <FileText className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p style={{ color: 'var(--text-secondary)' }}>No documents found</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {filteredDocs.map(doc => (
-            <div key={doc.id} className="card-hover flex items-center justify-between p-4">
-              <div className="flex items-center space-x-4 min-w-0">
-                <div className="w-10 h-10 bg-dark-700 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <FileText className="w-5 h-5 text-dark-300" />
-                </div>
-                <div className="min-w-0">
-                  <p className="font-medium truncate">{doc.name}</p>
-                  <div className="flex items-center space-x-3 text-sm text-dark-400">
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${typeColors[doc.type] || 'bg-dark-600 text-dark-300'}`}>
-                      {doc.type}
-                    </span>
-                    <span>{doc.size}</span>
-                    <span>{doc.uploadedAt}</span>
-                  </div>
-                </div>
+            <div
+              key={doc.id}
+              className="group flex items-center gap-3 px-4 py-3 rounded-lg transition-theme"
+              style={{ border: '1px solid transparent' }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)')}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = 'transparent')}
+            >
+              <FileText size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                  {doc.name}
+                </p>
+                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                  {doc.type} · {doc.size} · {doc.uploadedAt}
+                </p>
               </div>
-              <div className="flex items-center space-x-2 flex-shrink-0 ml-4">
-                <button className="p-2 text-dark-400 hover:text-white hover:bg-dark-700 rounded-lg transition-colors">
-                  <Download className="w-4 h-4" />
-                </button>
-                <button 
-                  onClick={() => onDelete(doc.id)}
-                  className="p-2 text-dark-400 hover:text-red-400 hover:bg-dark-700 rounded-lg transition-colors"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
+              <button
+                onClick={() => onDelete(doc.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg"
+                style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = '#f87171')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
+                title="Delete document"
+              >
+                <Trash2 size={14} />
+              </button>
             </div>
           ))}
         </div>
@@ -525,13 +666,13 @@ function DocumentsTab({ documents, onUpload, onDelete }: {
 }
 
 // Chat Tab
-function ChatTab({ 
-  documents, 
+function ChatTab({
+  documents,
   currentProject,
   messages,
   isLoading,
   onSendMessage
-}: { 
+}: {
   documents: Document[]
   currentProject: Project | null
   messages: Message[]
@@ -567,8 +708,8 @@ function ChatTab({
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       {/* Header */}
       <div className="mb-4">
-        <h1 className="text-2xl font-bold">AI Chat Assistant</h1>
-        <p className="text-dark-400">Ask questions about your documents</p>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>AI Chat Assistant</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>Ask questions about your documents</p>
       </div>
 
       {/* Quick Actions */}
@@ -578,7 +719,20 @@ function ChatTab({
             <button
               key={i}
               onClick={() => setInput(action)}
-              className="px-3 py-1.5 bg-dark-700 border border-dark-600 rounded-full text-sm text-dark-300 hover:border-brand-500 hover:text-white transition-colors"
+              className="px-3 py-1.5 rounded-full text-sm transition-theme"
+              style={{
+                backgroundColor: 'var(--card)',
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)'
+              }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'
+                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+              }}
             >
               {action}
             </button>
@@ -588,33 +742,35 @@ function ChatTab({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-        {messages.map(message => (
-          <div
-            key={message.id}
-            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div className={`max-w-[80%] p-4 rounded-2xl ${
-              message.role === 'user'
-                ? 'bg-brand-600 text-white rounded-br-md'
-                : 'bg-dark-700 text-white rounded-bl-md'
-            }`}>
-              {message.role === 'assistant' ? (
-                <div className="prose prose-invert prose-sm max-w-none">
+        {messages.map(msg => (
+          <div key={msg.id}>
+            {msg.role === 'assistant' ? (
+              <div className="flex gap-3 max-w-4xl">
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1"
+                  style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
+                >
+                  <MessageSquare size={13} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div
+                  className="flex-1 rounded-xl px-4 py-3 text-sm leading-relaxed"
+                  style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                >
                   <ReactMarkdown
                     components={{
                       p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      strong: ({ children }) => <strong className="font-bold text-white">{children}</strong>,
+                      strong: ({ children }) => <strong className="font-bold">{children}</strong>,
                       em: ({ children }) => <em className="italic">{children}</em>,
                       ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
                       ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
                       li: ({ children }) => <li className="ml-2">{children}</li>,
                       code: ({ children }) => (
-                        <code className="bg-dark-800 px-1.5 py-0.5 rounded text-sm font-mono">
+                        <code className="px-1.5 py-0.5 rounded text-sm font-mono" style={{ backgroundColor: 'var(--surface)' }}>
                           {children}
                         </code>
                       ),
                       pre: ({ children }) => (
-                        <pre className="bg-dark-800 p-3 rounded overflow-x-auto mb-2">
+                        <pre className="p-3 rounded overflow-x-auto mb-2" style={{ backgroundColor: 'var(--surface)' }}>
                           {children}
                         </pre>
                       ),
@@ -622,33 +778,52 @@ function ChatTab({
                       h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
                       h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-2 first:mt-0">{children}</h3>,
                       blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 border-brand-500 pl-4 italic my-2">
+                        <blockquote className="border-l-4 pl-4 italic my-2" style={{ borderColor: 'var(--accent)' }}>
                           {children}
                         </blockquote>
                       ),
                       a: ({ href, children }) => (
-                        <a href={href} className="text-brand-400 hover:text-brand-300 underline" target="_blank" rel="noopener noreferrer">
+                        <a href={href} className="underline" style={{ color: 'var(--accent)' }} target="_blank" rel="noopener noreferrer">
                           {children}
                         </a>
                       ),
                     }}
                   >
-                    {message.content}
+                    {msg.content}
                   </ReactMarkdown>
+                  <p className="text-xs mt-2 opacity-60">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
                 </div>
-              ) : (
-                <p className="whitespace-pre-wrap">{message.content}</p>
-              )}
-              <p className="text-xs mt-2 opacity-60">
-                {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end max-w-4xl ml-auto">
+                <div
+                  className="rounded-xl px-4 py-3 text-sm max-w-lg"
+                  style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <p className="text-xs mt-2 opacity-70">
+                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         ))}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-dark-700 text-white p-4 rounded-2xl rounded-bl-md">
-              <Loader2 className="w-5 h-5 animate-spin" />
+          <div className="flex gap-3 max-w-4xl">
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1"
+              style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
+            >
+              <MessageSquare size={13} style={{ color: 'var(--accent)' }} />
+            </div>
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--text-secondary)' }} />
             </div>
           </div>
         )}
@@ -667,7 +842,12 @@ function ChatTab({
             disabled={!documents.length || !currentProject || isLoading}
             className="input pr-12"
           />
-          <button className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors">
+          <button
+            className="absolute right-3 top-1/2 -translate-y-1/2 transition-theme"
+            style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
+          >
             <Paperclip className="w-5 h-5" />
           </button>
         </div>
@@ -719,10 +899,10 @@ function ConflictsTab({ documents, currentProject }: { documents: Document[]; cu
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Conflict Detection</h1>
-          <p className="text-dark-400">AI-powered analysis of document discrepancies</p>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Conflict Detection</h1>
+          <p style={{ color: 'var(--text-secondary)' }}>AI-powered analysis of document discrepancies</p>
         </div>
-        <button 
+        <button
           onClick={analyzeConflicts}
           disabled={isAnalyzing || documents.length < 2}
           className="btn-primary flex items-center space-x-2"
@@ -749,30 +929,30 @@ function ConflictsTab({ documents, currentProject }: { documents: Document[]; cu
 
       {documents.length < 2 ? (
         <div className="card text-center py-12">
-          <FileSearch className="w-12 h-12 text-dark-500 mx-auto mb-4" />
-          <p className="text-dark-400 mb-2">Upload at least 2 documents to detect conflicts</p>
-          <p className="text-sm text-dark-500">The AI will compare your documents and find discrepancies</p>
+          <FileSearch className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 documents to detect conflicts</p>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>The AI will compare your documents and find discrepancies</p>
         </div>
       ) : conflicts.length === 0 && !isAnalyzing ? (
         <div className="card text-center py-12">
-          <AlertTriangle className="w-12 h-12 text-dark-500 mx-auto mb-4" />
-          <p className="text-dark-400 mb-2">No conflicts analyzed yet</p>
-          <p className="text-sm text-dark-500">Click "Analyze Documents" to start</p>
+          <AlertTriangle className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>No conflicts analyzed yet</p>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Click "Analyze Documents" to start</p>
         </div>
       ) : (
         <div className="space-y-4">
           {conflicts.map(conflict => (
             <div key={conflict.id} className={`card border ${severityColors[conflict.severity as keyof typeof severityColors]}`}>
               <div className="flex items-start justify-between mb-2">
-                <h3 className="font-semibold text-lg">{conflict.title}</h3>
+                <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>{conflict.title}</h3>
                 <span className={`px-2 py-1 rounded text-xs uppercase font-medium ${severityColors[conflict.severity as keyof typeof severityColors]}`}>
                   {conflict.severity}
                 </span>
               </div>
-              <p className="text-dark-300 mb-4">{conflict.description}</p>
+              <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>{conflict.description}</p>
               <div className="flex flex-wrap gap-2">
                 {conflict.documents.map((doc: string, i: number) => (
-                  <span key={i} className="px-2 py-1 bg-dark-700 rounded text-sm text-dark-300">
+                  <span key={i} className="px-2 py-1 rounded text-sm" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-secondary)' }}>
                     {doc}
                   </span>
                 ))}
@@ -814,8 +994,8 @@ function CompareTab({ documents }: { documents: Document[] }) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Document Comparison</h1>
-        <p className="text-dark-400">Compare any two documents side by side</p>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Document Comparison</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>Compare any two documents side by side</p>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -867,16 +1047,14 @@ function CompareTab({ documents }: { documents: Document[] }) {
 
       {comparison && (
         <div className="card">
-          <div className="prose prose-invert max-w-none">
-            <pre className="whitespace-pre-wrap text-dark-200 font-sans">{comparison}</pre>
-          </div>
+          <pre className="whitespace-pre-wrap font-sans text-sm" style={{ color: 'var(--text-primary)' }}>{comparison}</pre>
         </div>
       )}
 
       {!comparison && documents.length < 2 && (
         <div className="card text-center py-12">
-          <GitCompare className="w-12 h-12 text-dark-500 mx-auto mb-4" />
-          <p className="text-dark-400">Upload at least 2 documents to compare them</p>
+          <GitCompare className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p style={{ color: 'var(--text-secondary)' }}>Upload at least 2 documents to compare them</p>
         </div>
       )}
     </div>
@@ -897,12 +1075,12 @@ function SettingsTab() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-dark-400">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+        <p style={{ color: 'var(--text-secondary)' }}>Manage your account and preferences</p>
       </div>
 
       <div className="card">
-        <h2 className="text-lg font-semibold mb-4">Profile</h2>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Profile</h2>
         <div className="space-y-4">
           <div>
             <label className="input-label">Name</label>
@@ -916,21 +1094,21 @@ function SettingsTab() {
       </div>
 
       <div className="card">
-        <h2 className="text-lg font-semibold mb-4">API Key</h2>
-        <p className="text-dark-400 text-sm mb-4">Add your OpenAI API key to enable AI features</p>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>API Key</h2>
+        <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Add your OpenAI API key to enable AI features</p>
         <div className="space-y-4">
           <div>
             <label className="input-label">OpenAI API Key</label>
-            <input 
-              type="password" 
-              className="input" 
-              placeholder="sk-..." 
+            <input
+              type="password"
+              className="input"
+              placeholder="sk-..."
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
             />
           </div>
           <div className="flex items-center space-x-4">
-            <button 
+            <button
               onClick={handleSaveApiKey}
               disabled={isSaving || !apiKey.trim()}
               className="btn-primary flex items-center space-x-2"
@@ -952,7 +1130,7 @@ function SettingsTab() {
 
       <div className="card border-red-500/30">
         <h2 className="text-lg font-semibold mb-4 text-red-400">Danger Zone</h2>
-        <p className="text-dark-400 text-sm mb-4">Permanently delete your account and all data</p>
+        <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Permanently delete your account and all data</p>
         <button className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">
           Delete Account
         </button>
@@ -1051,13 +1229,13 @@ export default function DashboardPage() {
 
   const loadChatHistory = async () => {
     if (!currentProject) return
-    
+
     // Don't reload if we already have messages for this project
     const projectKey = currentProject.id
     if (chatHistoryLoaded[projectKey] && chatMessages.length > 0) {
       return
     }
-    
+
     try {
       const data = await api.chat.history(parseInt(currentProject.id))
       if (data && (data as any).messages && (data as any).messages.length > 0) {
@@ -1126,7 +1304,7 @@ export default function DashboardPage() {
         content: data.response || 'I apologize, but I encountered an error processing your request.',
         timestamp: new Date()
       }
-      
+
       // Add assistant response (messages are already saved to DB by backend)
       setChatMessages(prev => [...prev, assistantMessage])
       // Mark chat history as loaded so we don't reload unnecessarily
@@ -1270,14 +1448,25 @@ export default function DashboardPage() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
+  const tabs = ['Documents', 'AI Chat', 'Conflicts', 'Compare']
+  const tabToId: Record<string, string> = {
+    'Documents': 'documents',
+    'AI Chat': 'chat',
+    'Conflicts': 'conflicts',
+    'Compare': 'compare'
+  }
+  const idToTab: Record<string, string> = Object.fromEntries(
+    Object.entries(tabToId).map(([k, v]) => [v, k])
+  )
+
   const renderTab = () => {
     switch (activeTab) {
       case 'documents':
         return <DocumentsTab documents={documents} onUpload={handleUpload} onDelete={handleDelete} />
       case 'chat':
         return (
-          <ChatTab 
-            documents={documents} 
+          <ChatTab
+            documents={documents}
             currentProject={currentProject}
             messages={chatMessages}
             isLoading={isChatLoading}
@@ -1296,7 +1485,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-dark-900">
+    <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
       <AddProjectModal
         isOpen={showAddProjectModal}
         onClose={() => setShowAddProjectModal(false)}
@@ -1311,7 +1500,7 @@ export default function DashboardPage() {
         onConfirm={confirmDeleteProject}
         projectName={projectToDelete?.name || ''}
       />
-      <Sidebar 
+      <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -1327,10 +1516,46 @@ export default function DashboardPage() {
         onDeleteProject={handleDeleteProject}
       />
 
-      <main className="flex-1 min-w-0">
-        {/* Header - Empty, logo is in sidebar */}
-        <div className="flex items-center justify-between p-4 border-b border-dark-700 bg-dark-800">
-          <div></div>
+      <main className="flex-1 min-w-0" style={{ backgroundColor: 'var(--bg)' }}>
+        {/* Top header bar */}
+        <div
+          className="flex items-center justify-between px-4 py-2"
+          style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}
+        >
+          {/* Tab bar */}
+          <div className="flex border-b-0 flex-1" style={{ backgroundColor: 'var(--surface)' }}>
+            {tabs.map((tab) => {
+              const tabId = tabToId[tab]
+              const isActive = activeTab === tabId
+              return (
+                <button
+                  key={tab}
+                  onClick={() => {
+                    setActiveTab(tabId)
+                    localStorage.setItem('activeTab', tabId)
+                  }}
+                  className="px-5 py-3 text-sm font-medium transition-theme relative"
+                  style={{
+                    color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    background: 'none',
+                    border: 'none'
+                  }}
+                >
+                  {tab}
+                  {isActive && (
+                    <span
+                      className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                      style={{ backgroundColor: 'var(--accent)' }}
+                    />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          {/* Settings tab indicator in header */}
+          {activeTab === 'settings' && (
+            <span className="text-sm font-medium px-2" style={{ color: 'var(--text-primary)' }}>Settings</span>
+          )}
         </div>
 
         {/* Content */}
