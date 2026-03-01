@@ -1,7 +1,7 @@
 """
 Database models and connection - SQLite version
 """
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -49,6 +49,8 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    __table_args__ = (Index('ix_project_owner_id', 'owner_id'),)
+
     # Relationships
     owner = relationship("User", back_populates="projects")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
@@ -70,6 +72,8 @@ class Document(Base):
     summary = Column(Text)  # AI-generated summary
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('ix_document_project_id', 'project_id'),)
 
     # Relationships
     project = relationship("Project", back_populates="documents")
@@ -96,6 +100,8 @@ class ChatMessage(Base):
     role = Column(String(20), nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('ix_chatmessage_chat_id', 'chat_id'),)
 
     # Relationships
     chat = relationship("Chat", back_populates="messages")

@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from starlette.requests import Request
+from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT
 from backend.database import get_db, User, Project, Document, Chat, ChatMessage, init_db
 from backend.auth import (
     get_current_user, 
@@ -59,6 +63,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 # Pydantic models
@@ -298,21 +306,31 @@ async def delete_project(
 @app.get("/projects/{project_id}/documents", response_model=List[DocumentResponse])
 async def list_documents(
     project_id: int,
+    page: int = 1,
+    limit: int = PAGINATION_DEFAULT_LIMIT,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
 ):
     """List all documents in a project."""
     # Verify project ownership
     project = db.query(Project).filter(
-        Project.id == project_id,
-        Project.owner_id == current_user.id
+        Project.id == project_id, Project.owner_id == current_user.id
     ).first()
-    
+
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    documents = db.query(Document).filter(Document.project_id == project_id).all()
-    return documents
+
+    limit = min(limit, PAGINATION_MAX_LIMIT)
+    offset = (page - 1) * limit
+
+    docs = (
+        db.query(Document)
+        .filter(Document.project_id == project_id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return docs
 
 
 @app.post("/projects/{project_id}/documents", response_model=DocumentResponse)
@@ -445,8 +463,10 @@ async def delete_document(
 # ============ Chat Routes ============
 
 @app.post("/chat", response_model=ChatResponse)
+@limiter.limit(CHAT_RATE_LIMIT)
 async def chat(
-    request: ChatRequest,
+    request: Request,
+    chat_request: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -460,17 +480,17 @@ async def chat(
     # Get documents for the specified project (or all projects if no project_id)
     doc_list = []
     
-    if request.project_id:
+    if chat_request.project_id:
         # Only get documents from the specified project
         project = db.query(Project).filter(
-            Project.id == request.project_id,
+            Project.id == chat_request.project_id,
             Project.owner_id == current_user.id
         ).first()
-        
+
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
-        
-        documents = db.query(Document).filter(Document.project_id == request.project_id).all()
+
+        documents = db.query(Document).filter(Document.project_id == chat_request.project_id).all()
         for doc in documents:
             if doc.extracted_text:
                 # Count words in extracted text
@@ -495,35 +515,35 @@ async def chat(
                         "text_content": doc.extracted_text,
                         "word_count": word_count
                     })
-    
+
     # Get or create chat session for this project
-    if not request.project_id:
+    if not chat_request.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
-    
+
     chat = db.query(Chat).filter(
-        Chat.project_id == request.project_id,
+        Chat.project_id == chat_request.project_id,
         Chat.user_id == current_user.id
     ).first()
-    
+
     if not chat:
         chat = Chat(
-            project_id=request.project_id,
+            project_id=chat_request.project_id,
             user_id=current_user.id
         )
         db.add(chat)
         db.commit()
         db.refresh(chat)
-    
+
     # Save user message to database
     user_message = ChatMessage(
         chat_id=chat.id,
         role="user",
-        content=request.message
+        content=chat_request.message
     )
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
-    
+
     # Create AI assistant and get response
     try:
         assistant = ConstructionAI()
@@ -531,8 +551,8 @@ async def chat(
         # Load documents if available
         if doc_list:
             assistant.load_documents(doc_list)
-        
-        response = assistant.ask_question(request.message)
+
+        response = assistant.ask_question(chat_request.message)
         
         # Save assistant response to database
         assistant_message = ChatMessage(
@@ -600,7 +620,9 @@ async def get_chat_history(
 
 
 @app.post("/projects/{project_id}/conflicts", response_model=List[ConflictResponse])
+@limiter.limit(CONFLICTS_RATE_LIMIT)
 async def analyze_conflicts(
+    request: Request,
     project_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)

@@ -18,3 +18,6 @@ pandas==2.1.4
 # OCR support
 pytesseract==0.3.10
 Pillow==10.2.0
+
+# Rate limiting
+slowapi==0.1.9
