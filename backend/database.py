@@ -55,6 +55,7 @@ class Project(Base):
     owner = relationship("User", back_populates="projects")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     chats = relationship("Chat", back_populates="project", cascade="all, delete-orphan")
+    memories = relationship("ProjectMemory", back_populates="project", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -105,6 +106,22 @@ class ChatMessage(Base):
 
     # Relationships
     chat = relationship("Chat", back_populates="messages")
+
+
+class ProjectMemory(Base):
+    __tablename__ = "project_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    fact_key = Column(String(255), nullable=False)
+    fact_value = Column(Text, nullable=False)
+    confidence = Column(String(20), default="medium")  # "high" or "medium"
+    source_thread_id = Column(Integer, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('ix_projectmemory_project_id', 'project_id'),)
+
+    project = relationship("Project", back_populates="memories")
 
 
 # Database dependency for FastAPI

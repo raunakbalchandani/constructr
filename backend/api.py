@@ -26,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT
-from backend.database import get_db, User, Project, Document, Chat, ChatMessage, init_db
+from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, init_db
 from backend.auth import (
     get_current_user, 
     create_access_token, 
