@@ -7,7 +7,10 @@ async function handler(req: NextRequest): Promise<NextResponse> {
   const url = `${BACKEND_URL}${path}${req.nextUrl.search}`
 
   const headers = new Headers(req.headers)
-  headers.delete('host')
+  // Strip hop-by-hop headers that can't be forwarded
+  for (const h of ['host', 'connection', 'keep-alive', 'transfer-encoding', 'upgrade', 'proxy-authorization', 'te', 'trailers']) {
+    headers.delete(h)
+  }
 
   const init: RequestInit = { method: req.method, headers }
 
