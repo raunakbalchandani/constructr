@@ -6,6 +6,7 @@ Handles all AI/LLM interactions for document analysis.
 import openai
 from typing import List, Dict, Optional
 import os
+from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL
 
 # System prompt for construction expertise
 SYSTEM_PROMPT = """You are an expert construction project consultant and AI assistant with deep knowledge of:
@@ -39,14 +40,14 @@ SYSTEM_PROMPT = """You are an expert construction project consultant and AI assi
 
 
 class ConstructionAI:
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = DEFAULT_AI_MODEL):
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY environment variable is required.")
         self.client = openai.OpenAI(api_key=api_key)
         self.model = model
         self.documents = []
-        self.max_context_chars = 12000  # Limit context to avoid token limits
+        self.max_context_chars = MAX_CONTEXT_CHARS  # Limit context to avoid token limits
 
     def load_documents(self, documents: List[Dict]):
         """Load parsed documents into the AI assistant."""

@@ -14,6 +14,7 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT
 from backend.database import get_db, User, Project, Document, Chat, ChatMessage, init_db
 from backend.auth import (
     get_current_user, 

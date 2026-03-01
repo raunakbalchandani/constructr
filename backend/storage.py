@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Optional
 from fastapi import UploadFile
 
+from backend.constants import MAX_FILE_SIZE
+
 # Storage configuration
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "uploads")
-MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 
 def ensure_upload_dir():
