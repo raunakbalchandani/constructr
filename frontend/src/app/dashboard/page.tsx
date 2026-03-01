@@ -6,39 +6,20 @@ import ReactMarkdown from 'react-markdown'
 import { useTheme } from 'next-themes'
 import * as api from '@/lib/api'
 import {
-  Building2,
-  FileText,
-  MessageSquare,
-  Upload,
-  Search,
-  Settings,
-  LogOut,
-  Plus,
-  Send,
-  Paperclip,
-  FileSearch,
-  AlertTriangle,
-  GitCompare,
-  Trash2,
-  Download,
-  Filter,
-  ChevronDown,
-  Loader2,
-  X,
-  Menu,
-  Home,
-  FolderOpen,
-  Sun,
-  Moon
+  FileText, MessageSquare, AlertTriangle, GitCompare,
+  Upload, Search, Settings, LogOut, Plus, Send,
+  FileSearch, Trash2, Filter, Loader2, X, Menu,
+  Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
+  ChevronRight, HardHat, FileSignature
 } from 'lucide-react'
 
-// Types
-interface Document {
+// ─── Types ─────────────────────────────────────────────────
+interface UploadedFile {
   id: string
   name: string
   type: string
-  uploadedAt: string
   size: string
+  uploadedAt: string
 }
 
 interface Message {
@@ -51,10 +32,32 @@ interface Message {
 interface Project {
   id: string
   name: string
-  documents: number
+  fileCount: number
 }
 
-// Theme Toggle
+// ─── File category config ───────────────────────────────────
+const FILE_CATEGORIES: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  drawing:      { label: 'Drawing',         color: '#818CF8', icon: Layers },
+  floor_plan:   { label: 'Floor Plan',      color: '#A78BFA', icon: Layers },
+  site_plan:    { label: 'Site Plan',       color: '#C084FC', icon: Layers },
+  specification:{ label: 'Specification',   color: '#F59E0B', icon: FileText },
+  contract:     { label: 'Contract',        color: '#34D399', icon: FileSignature },
+  rfi:          { label: 'RFI',             color: '#F87171', icon: ClipboardList },
+  submittal:    { label: 'Submittal',       color: '#60A5FA', icon: FileSearch },
+  change_order: { label: 'Change Order',    color: '#FB923C', icon: DollarSign },
+  schedule:     { label: 'Schedule',        color: '#A3E635', icon: Clock },
+  budget:       { label: 'Budget',          color: '#4ADE80', icon: DollarSign },
+  report:       { label: 'Report',          color: '#94A3B8', icon: HardHat },
+  minutes:      { label: 'Meeting Minutes', color: '#22D3EE', icon: MessageSquare },
+  punch_list:   { label: 'Punch List',      color: '#FB7185', icon: ClipboardList },
+  unknown:      { label: 'Other',           color: '#6B7280', icon: FileText },
+}
+
+function getCategoryConfig(type: string) {
+  return FILE_CATEGORIES[type] ?? FILE_CATEGORIES.unknown
+}
+
+// ─── Theme toggle ───────────────────────────────────────────
 function ThemeToggle() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
@@ -67,26 +70,121 @@ function ThemeToggle() {
       onClick={() => setTheme(isDark ? 'light' : 'dark')}
       title={isDark ? 'Switch to Light' : 'Switch to Dark'}
       aria-label={isDark ? 'Switch to Light' : 'Switch to Dark'}
-      className="p-1.5 rounded-lg transition-theme"
+      className="p-2 transition-colors"
       style={{ color: 'var(--text-secondary)' }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
       onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
     >
-      {isDark ? <Sun size={16} /> : <Moon size={16} />}
+      {isDark ? <Sun size={15} /> : <Moon size={15} />}
     </button>
   )
 }
 
-// Delete Project Confirmation Modal
-function DeleteProjectModal({
-  isOpen,
-  onClose,
-  onConfirm,
-  projectName
+// ─── New Project Modal (with error feedback) ───────────────
+function NewProjectModal({
+  isOpen, onClose, onAdd
 }: {
   isOpen: boolean
   onClose: () => void
-  onConfirm: () => void
+  onAdd: (name: string, description?: string) => Promise<void>
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    setIsLoading(true)
+    setError('')
+    try {
+      await onAdd(name.trim(), description.trim() || undefined)
+      setName('')
+      setDescription('')
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create project. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div
+        className="w-full max-w-md p-6"
+        style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// NEW PROJECT</p>
+            <h2 className="text-xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>Create Project</h2>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--text-secondary)' }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)' }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}>
+              Project Name *
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input"
+              placeholder="North Tower — Phase 2"
+              required
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}>
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="input resize-none"
+              style={{ minHeight: 80 }}
+              placeholder="Brief project description (optional)"
+            />
+          </div>
+          {error && (
+            <div className="text-xs px-3 py-2"
+              style={{ color: '#f87171', backgroundColor: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)', fontFamily: 'var(--font-mono)' }}>
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-ghost" disabled={isLoading}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={isLoading || !name.trim()}>
+              {isLoading ? 'Creating…' : 'Create →'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Delete Project Modal ───────────────────────────────────
+function DeleteProjectModal({
+  isOpen, onClose, onConfirm, projectName
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => Promise<void>
   projectName: string
 }) {
   const [isDeleting, setIsDeleting] = useState(false)
@@ -101,33 +199,27 @@ function DeleteProjectModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
-        className="rounded-lg p-6 w-full max-w-md"
+        className="w-full max-w-md p-6"
         style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-xl font-bold mb-2 text-red-400">Delete Project</h2>
-        <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>
-          Are you sure you want to delete <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>"{projectName}"</span>?
-          This will permanently delete the project and all its documents. This action cannot be undone.
+        <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)', color: '#f87171' }}>// DESTRUCTIVE ACTION</p>
+        <h2 className="text-xl font-black uppercase mb-4" style={{ fontFamily: 'var(--font-display)', color: '#f87171' }}>Delete Project</h2>
+        <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
+          Delete <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>"{projectName}"</span> and all its files?
+          This cannot be undone.
         </p>
-        <div className="flex justify-end space-x-3 pt-4">
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} className="btn-ghost" disabled={isDeleting}>Cancel</button>
           <button
-            type="button"
-            onClick={onClose}
-            className="btn-ghost"
-            disabled={isDeleting}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
             onClick={handleConfirm}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50"
             disabled={isDeleting}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-50"
+            style={{ backgroundColor: '#f87171', color: '#fff' }}
           >
-            {isDeleting ? 'Deleting...' : 'Delete Project'}
+            {isDeleting ? 'Deleting…' : 'Delete Project'}
           </button>
         </div>
       </div>
@@ -135,99 +227,18 @@ function DeleteProjectModal({
   )
 }
 
-// Add Project Modal
-function AddProjectModal({
-  isOpen,
-  onClose,
-  onAdd
-}: {
-  isOpen: boolean
-  onClose: () => void
-  onAdd: (name: string, description?: string) => void
-}) {
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
+// ─── Sidebar ───────────────────────────────────────────────
+const NAV_ITEMS = [
+  { id: 'files',     icon: Layers,        label: 'Files' },
+  { id: 'chat',      icon: MessageSquare, label: 'AI Chat' },
+  { id: 'conflicts', icon: AlertTriangle, label: 'Conflicts' },
+  { id: 'compare',   icon: GitCompare,    label: 'Compare' },
+]
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!name.trim()) return
-
-    setIsLoading(true)
-    await onAdd(name.trim(), description.trim() || undefined)
-    setIsLoading(false)
-    setName('')
-    setDescription('')
-    onClose()
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div
-        className="rounded-lg p-6 w-full max-w-md"
-        style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Create New Project</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Project Name *</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="input w-full"
-              placeholder="Enter project name"
-              required
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>Description (optional)</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="input w-full min-h-[100px] resize-none"
-              placeholder="Enter project description"
-            />
-          </div>
-          <div className="flex justify-end space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-ghost"
-              disabled={isLoading}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={isLoading || !name.trim()}
-            >
-              {isLoading ? 'Creating...' : 'Create Project'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-// Sidebar
 function Sidebar({
-  isOpen,
-  onClose,
-  onToggle,
-  activeTab,
-  setActiveTab,
-  projects,
-  currentProject,
-  setCurrentProject,
-  onAddProject,
-  onDeleteProject
+  isOpen, onClose, onToggle, activeTab, setActiveTab,
+  projects, currentProject, setCurrentProject,
+  onNewProject, onDeleteProject
 }: {
   isOpen: boolean
   onClose: () => void
@@ -236,902 +247,648 @@ function Sidebar({
   setActiveTab: (tab: string) => void
   projects: Project[]
   currentProject: Project | null
-  setCurrentProject: (project: Project) => void
-  onAddProject: () => void
-  onDeleteProject: (projectId: string) => void
+  setCurrentProject: (p: Project) => void
+  onNewProject: () => void
+  onDeleteProject: (id: string) => void
 }) {
-  const navItems = [
-    { id: 'documents', icon: FileText, label: 'Documents' },
-    { id: 'chat', icon: MessageSquare, label: 'AI Chat' },
-    { id: 'conflicts', icon: AlertTriangle, label: 'Conflicts' },
-    { id: 'compare', icon: GitCompare, label: 'Compare' },
-  ]
-
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
-        <div
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
-          onClick={onClose}
-        />
+        <div className="lg:hidden fixed inset-0 bg-black/50 z-40" onClick={onClose} />
       )}
-
-      {/* Sidebar */}
       <aside
-        className={`
-          fixed lg:static inset-y-0 left-0 z-50
-          ${isOpen ? 'w-64' : 'w-0 lg:w-16'}
-          transform transition-all duration-200 overflow-hidden
-          ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          lg:overflow-visible
-        `}
-        style={{
-          backgroundColor: 'var(--surface)',
-          borderRight: '1px solid var(--border)'
-        }}
+        className={`fixed lg:static inset-y-0 left-0 z-50 flex flex-col
+          ${isOpen ? 'w-64' : 'w-0 lg:w-14'}
+          transition-all duration-200 overflow-hidden`}
+        style={{ backgroundColor: 'var(--surface)', borderRight: '1px solid var(--border)' }}
       >
-        <div className="flex flex-col h-full">
-          {/* Logo and Toggle Button */}
-          <div
-            className="flex items-center justify-between p-4 min-w-[256px] lg:min-w-0"
-            style={{ borderBottom: '1px solid var(--border)' }}
-          >
-            <Link
-              href="/"
-              className={`flex items-center space-x-3 ${isOpen ? '' : 'lg:hidden'} hover:opacity-80 transition-opacity cursor-pointer`}
-              title="Go to homepage"
-            >
-              <div className="w-8 h-8 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-lg flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-white" />
-              </div>
-              <span className="text-lg font-bold" style={{ color: 'var(--accent)' }}>Foreperson.ai</span>
-            </Link>
-            {!isOpen && (
-              <div className="hidden lg:flex flex-col items-center justify-center w-full space-y-2">
-                <button
-                  onClick={onToggle}
-                  className="p-2 transition-theme"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-                  title="Expand sidebar"
-                >
-                  <Menu className="w-6 h-6" />
-                </button>
-              </div>
-            )}
-            {isOpen && (
-              <button
-                onClick={onToggle}
-                className="hidden lg:flex p-2 transition-theme"
+        {/* Logo row */}
+        <div className="flex items-center justify-between px-4 h-14 flex-shrink-0"
+          style={{ borderBottom: '1px solid var(--border)', minWidth: isOpen ? 256 : undefined }}>
+          {isOpen ? (
+            <>
+              <Link href="/" className="flex items-center gap-2">
+                <div className="w-6 h-6 flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>
+                  <span className="text-xs font-bold" style={{ color: 'var(--accent-dark)', fontFamily: 'var(--font-mono)', fontSize: '0.55rem' }}>FP</span>
+                </div>
+                <span className="text-xs font-black uppercase tracking-widest" style={{ fontFamily: 'var(--font-display)' }}>Foreperson.ai</span>
+              </Link>
+              <button onClick={onToggle} className="p-1.5 transition-colors"
                 style={{ color: 'var(--text-secondary)' }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-                title="Collapse sidebar"
-              >
-                <Menu className="w-5 h-5" />
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                <Menu size={16} />
               </button>
-            )}
-            <button
-              onClick={onClose}
-              className="lg:hidden transition-theme"
-              style={{ color: 'var(--text-secondary)' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Project Selector */}
-          <div
-            className={`p-4 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}
-            style={{ borderBottom: '1px solid var(--border)' }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <label
-                className="text-xs uppercase tracking-widest"
+            </>
+          ) : (
+            <div className="flex flex-col items-center w-full gap-3">
+              <button onClick={onToggle} className="p-1.5 transition-colors mt-1"
                 style={{ color: 'var(--text-secondary)' }}
-              >
-                Project
-              </label>
-              <div className="flex items-center space-x-1">
-                <button
-                  onClick={onAddProject}
-                  className="flex items-center space-x-1 px-2 py-1 text-xs rounded transition-theme"
-                  style={{ color: 'var(--text-secondary)' }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                <Menu size={16} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isOpen && (
+          <>
+            {/* Projects */}
+            <div className="px-3 pt-4 pb-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>PROJECTS</span>
+                <button onClick={onNewProject}
+                  className="flex items-center gap-1 text-xs px-2 py-1 transition-colors"
+                  style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}
                   onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
-                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-                  title="Add new project"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>New</span>
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                  <Plus size={11} /> NEW
                 </button>
-                {currentProject && (
-                  <button
-                    onClick={() => onDeleteProject(currentProject.id)}
-                    className={`flex items-center space-x-1 px-2 py-1 text-xs rounded transition-theme ${
-                      projects.length > 1
-                        ? ''
-                        : 'opacity-50 cursor-not-allowed'
-                    }`}
-                    style={{ color: projects.length > 1 ? '#f87171' : 'var(--text-secondary)' }}
-                    title={projects.length > 1 ? "Delete project" : "Cannot delete the last project"}
-                    disabled={projects.length <= 1}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+              </div>
+
+              <div className="space-y-0.5 pb-2">
+                {projects.length === 0 ? (
+                  <p className="text-xs px-1 py-2" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>No projects yet</p>
+                ) : (
+                  projects.map((proj) => {
+                    const isActive = currentProject?.id === proj.id
+                    return (
+                      <div key={proj.id}
+                        className="group flex items-center gap-2 px-2 py-2 cursor-pointer transition-colors"
+                        style={{
+                          backgroundColor: isActive ? 'var(--card)' : 'transparent',
+                          borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                        }}
+                        onClick={() => setCurrentProject(proj)}
+                        onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}
+                        onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}
+                      >
+                        <ChevronRight size={10} style={{ color: isActive ? 'var(--accent)' : 'var(--text-secondary)', flexShrink: 0 }} />
+                        <span className="flex-1 text-xs truncate" style={{ color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          {proj.name}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>
+                            {proj.fileCount}
+                          </span>
+                          {projects.length > 1 && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); onDeleteProject(proj.id) }}
+                              className="opacity-0 group-hover:opacity-100 transition-opacity"
+                              style={{ color: 'var(--text-secondary)' }}
+                              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = '#f87171')}
+                              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
                 )}
               </div>
             </div>
-            <div className="relative">
-              <select
-                value={currentProject?.id || ''}
-                onChange={(e) => {
-                  const proj = projects.find(p => p.id === e.target.value)
-                  if (proj) setCurrentProject(proj)
-                }}
-                className="input w-full appearance-none cursor-pointer"
-              >
-                {projects.map(proj => (
-                  <option key={proj.id} value={proj.id}>{proj.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
-            </div>
-          </div>
 
-          {/* Navigation */}
-          <nav className={`flex-1 p-4 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}>
-            <p className="text-xs uppercase tracking-widest mb-3 px-1" style={{ color: 'var(--text-secondary)' }}>
-              Navigation
-            </p>
-            {navItems.map(item => {
-              const isActive = activeTab === item.id
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id)
-                    onClose()
-                  }}
-                  className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme"
-                  style={
-                    isActive
-                      ? {
-                          backgroundColor: 'var(--card)',
-                          borderLeft: '2px solid var(--accent)',
-                          color: 'var(--text-primary)'
-                        }
-                      : {
-                          borderLeft: '2px solid transparent',
-                          color: 'var(--text-secondary)'
-                        }
-                  }
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                    }
-                  }}
-                  title={!isOpen ? item.label : undefined}
-                >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
-                  <span className={isOpen ? '' : 'lg:hidden'}>{item.label}</span>
-                </button>
-              )
-            })}
-          </nav>
+            {/* Nav */}
+            <nav className="flex-1 px-3 py-3 space-y-0.5">
+              <span className="label-mono px-1 block mb-2" style={{ fontFamily: 'var(--font-mono)' }}>WORKSPACE</span>
+              {NAV_ITEMS.map(({ id, icon: Icon, label }) => {
+                const isActive = activeTab === id
+                return (
+                  <button key={id}
+                    onClick={() => { setActiveTab(id); onClose() }}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors"
+                    style={{
+                      backgroundColor: isActive ? 'var(--card)' : 'transparent',
+                      borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                      color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' } }}
+                    onMouseLeave={(e) => { if (!isActive) { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' } }}
+                  >
+                    <Icon size={15} style={{ flexShrink: 0 }} />
+                    <span className="text-xs font-medium uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>{label}</span>
+                  </button>
+                )
+              })}
+            </nav>
 
-          {/* Footer */}
-          <div
-            className={`p-4 space-y-1 min-w-[256px] lg:min-w-0 ${!isOpen ? 'lg:hidden' : ''}`}
-            style={{ borderTop: '1px solid var(--border)' }}
-          >
-            {/* Settings nav item */}
-            {(() => {
-              const isActive = activeTab === 'settings'
-              return (
-                <button
-                  onClick={() => {
-                    setActiveTab('settings')
-                    onClose()
-                  }}
-                  className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme"
-                  style={
-                    isActive
-                      ? {
-                          backgroundColor: 'var(--card)',
-                          borderLeft: '2px solid var(--accent)',
-                          color: 'var(--text-primary)'
-                        }
-                      : {
-                          borderLeft: '2px solid transparent',
-                          color: 'var(--text-secondary)'
-                        }
-                  }
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                    }
-                  }}
-                  title={!isOpen ? 'Settings' : undefined}
-                >
-                  <Settings className="w-5 h-5 flex-shrink-0" />
-                  <span className={isOpen ? '' : 'lg:hidden'}>Settings</span>
-                </button>
-              )
-            })()}
-
-            {/* Sign out + ThemeToggle row */}
-            <div className="flex items-center justify-between pt-1">
+            {/* Bottom */}
+            <div className="px-3 pb-3 pt-2 flex-shrink-0 space-y-0.5" style={{ borderTop: '1px solid var(--border)' }}>
               <button
-                onClick={() => {
-                  localStorage.removeItem('token')
-                  window.location.href = '/login'
+                onClick={() => { setActiveTab('settings'); onClose() }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors"
+                style={{
+                  backgroundColor: activeTab === 'settings' ? 'var(--card)' : 'transparent',
+                  borderLeft: activeTab === 'settings' ? '2px solid var(--accent)' : '2px solid transparent',
+                  color: activeTab === 'settings' ? 'var(--text-primary)' : 'var(--text-secondary)',
                 }}
-                className="flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-theme flex-1"
-                style={{ color: 'var(--text-secondary)' }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
-                }}
-                title={!isOpen ? 'Sign out' : undefined}
+                onMouseEnter={(e) => { if (activeTab !== 'settings') (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}
+                onMouseLeave={(e) => { if (activeTab !== 'settings') (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
               >
-                <LogOut className="w-5 h-5 flex-shrink-0" />
-                <span className={isOpen ? '' : 'lg:hidden'}>Sign out</span>
+                <Settings size={15} style={{ flexShrink: 0 }} />
+                <span className="text-xs font-medium uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Settings</span>
               </button>
-              <ThemeToggle />
+
+              <div className="flex items-center justify-between px-2 pt-1">
+                <button
+                  onClick={() => { localStorage.removeItem('token'); window.location.href = '/login' }}
+                  className="flex items-center gap-2 px-2 py-2 transition-colors text-xs"
+                  style={{ color: 'var(--text-secondary)' }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                  <LogOut size={13} />
+                  <span className="uppercase tracking-wide" style={{ letterSpacing: '0.06em' }}>Sign out</span>
+                </button>
+                <ThemeToggle />
+              </div>
             </div>
+          </>
+        )}
+
+        {/* Collapsed: icon-only nav */}
+        {!isOpen && (
+          <div className="hidden lg:flex flex-col items-center gap-4 py-4 mt-2">
+            {NAV_ITEMS.map(({ id, icon: Icon, label }) => (
+              <button key={id} title={label}
+                onClick={() => { setActiveTab(id); }}
+                className="p-2.5 transition-colors"
+                style={{ color: activeTab === id ? 'var(--accent)' : 'var(--text-secondary)' }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = activeTab === id ? 'var(--accent)' : 'var(--text-secondary)')}>
+                <Icon size={16} />
+              </button>
+            ))}
           </div>
-        </div>
+        )}
       </aside>
     </>
   )
 }
 
-// Documents Tab
-function DocumentsTab({ documents, onUpload, onDelete }: {
-  documents: Document[]
-  onUpload: (files: FileList) => void
+// ─── Files Tab ─────────────────────────────────────────────
+const FILTER_TYPES = [
+  'all', 'drawing', 'floor_plan', 'site_plan', 'specification',
+  'contract', 'rfi', 'submittal', 'change_order', 'schedule',
+  'budget', 'report', 'minutes', 'punch_list',
+]
+
+function FilesTab({ files, onUpload, onDelete, isUploading }: {
+  files: UploadedFile[]
+  onUpload: (f: FileList) => void
   onDelete: (id: string) => void
+  isUploading: boolean
 }) {
-  const [searchQuery, setSearchQuery] = useState('')
+  const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const filteredDocs = documents.filter(doc => {
-    const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesType = filterType === 'all' || doc.type === filterType
-    return matchesSearch && matchesType
+  const filtered = files.filter((f) => {
+    const matchSearch = f.name.toLowerCase().includes(search.toLowerCase())
+    const matchType = filterType === 'all' || f.type === filterType
+    return matchSearch && matchType
   })
-
-  const documentTypes = ['all', 'contract', 'specification', 'rfi', 'submittal', 'drawing']
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragging(false)
-    if (e.dataTransfer.files.length) {
-      onUpload(e.dataTransfer.files)
-    }
-  }
-
-  const typeColors: Record<string, string> = {
-    contract: 'bg-green-500/20 text-green-400',
-    specification: 'bg-orange-500/20 text-orange-400',
-    rfi: 'bg-red-500/20 text-red-400',
-    submittal: 'bg-blue-500/20 text-blue-400',
-    drawing: 'bg-purple-500/20 text-purple-400',
+    if (e.dataTransfer.files.length) onUpload(e.dataTransfer.files)
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Documents</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>{documents.length} files uploaded</p>
+          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// PROJECT FILES</p>
+          <h1 className="text-2xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>
+            {files.length > 0 ? `${files.length} Files` : 'No Files Yet'}
+          </h1>
         </div>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="btn-primary flex items-center space-x-2"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Upload</span>
+        <button onClick={() => fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="btn-primary flex items-center gap-2 flex-shrink-0">
+          {isUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {isUploading ? 'Uploading…' : 'Upload'}
         </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx,.xlsx,.doc,.xls"
+        <input ref={fileInputRef} type="file" multiple
+          accept=".pdf,.docx,.xlsx,.doc,.xls,.png,.jpg,.jpeg,.dwg,.dxf,.csv"
           className="hidden"
           onChange={(e) => e.target.files && onUpload(e.target.files)}
         />
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <div className="relative flex-1 min-w-0">
-          <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search documents..."
-            className="input pl-11 pr-4"
-          />
+      {/* Search + filter */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
+          <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search files…" className="input pl-9" />
         </div>
-        <div className="relative sm:min-w-[180px]">
-          <Filter className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
-          <select
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value)}
-            className="input pl-11 pr-10 appearance-none cursor-pointer"
-          >
-            {documentTypes.map(type => (
-              <option key={type} value={type}>
-                {type === 'all' ? 'All Types' : type.charAt(0).toUpperCase() + type.slice(1)}
+        <div className="relative sm:w-48">
+          <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}
+            className="input pl-9 appearance-none cursor-pointer">
+            {FILTER_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t === 'all' ? 'All Types' : (FILE_CATEGORIES[t]?.label ?? t)}
               </option>
             ))}
           </select>
-          <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none z-10" style={{ color: 'var(--text-secondary)' }} />
         </div>
       </div>
 
-      {/* Upload Zone */}
+      {/* Drop zone */}
       <div
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-theme"
+        className="border-2 border-dashed p-8 text-center cursor-pointer transition-all"
         style={{
           borderColor: isDragging ? 'var(--accent)' : 'var(--border)',
-          backgroundColor: isDragging ? 'var(--glow)' : 'transparent'
-        }}
-        onMouseEnter={(e) => {
-          if (!isDragging) {
-            (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--text-secondary)'
-          }
-        }}
-        onMouseLeave={(e) => {
-          if (!isDragging) {
-            (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'
-          }
+          backgroundColor: isDragging ? 'var(--glow)' : 'transparent',
         }}
       >
-        <Upload className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
-        <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>
-          Drag and drop files here, or <span style={{ color: 'var(--accent)' }}>browse</span>
+        <Upload size={28} className="mx-auto mb-3" style={{ color: isDragging ? 'var(--accent)' : 'var(--text-secondary)' }} />
+        <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
+          Drag files here or <span style={{ color: 'var(--accent)' }}>browse</span>
         </p>
-        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Supports PDF, DOCX, XLSX</p>
+        <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+          PDF · DOCX · XLSX · PNG · JPG · DWG · CSV
+        </p>
+        <p className="text-xs mt-1.5" style={{ color: 'var(--text-secondary)' }}>
+          Drawings, specs, contracts, RFIs, schedules, budgets, photos — anything
+        </p>
       </div>
 
-      {/* Document List */}
-      {filteredDocs.length === 0 ? (
-        <div className="card text-center py-12">
-          <FileText className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
-          <p style={{ color: 'var(--text-secondary)' }}>No documents found</p>
+      {/* File list */}
+      {filtered.length === 0 ? (
+        <div className="text-center py-12" style={{ border: '1px solid var(--border)' }}>
+          <FileSearch size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            {files.length === 0 ? 'Upload your first file to get started' : 'No files match your search'}
+          </p>
         </div>
       ) : (
-        <div className="space-y-1">
-          {filteredDocs.map(doc => (
-            <div
-              key={doc.id}
-              className="group flex items-center gap-3 px-4 py-3 rounded-lg transition-theme"
-              style={{ border: '1px solid transparent' }}
-              onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)')}
-              onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = 'transparent')}
-            >
-              <FileText size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                  {doc.name}
-                </p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                  {doc.type} · {doc.size} · {doc.uploadedAt}
-                </p>
-              </div>
-              <button
-                onClick={() => onDelete(doc.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg"
-                style={{ color: 'var(--text-secondary)' }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = '#f87171')}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-                title="Delete document"
+        <div className="border" style={{ borderColor: 'var(--border)' }}>
+          {/* List header */}
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-4 py-2 border-b"
+            style={{ borderColor: 'var(--border)', backgroundColor: 'var(--surface)' }}>
+            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
+            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
+            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
+            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
+          </div>
+          {filtered.map((file) => {
+            const cat = getCategoryConfig(file.type)
+            const CatIcon = cat.icon
+            return (
+              <div key={file.id}
+                className="group grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center px-4 py-3 transition-colors"
+                style={{ borderBottom: '1px solid var(--border)' }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)')}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent')}
               >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center gap-3 min-w-0">
+                  <CatIcon size={14} style={{ color: cat.color, flexShrink: 0 }} />
+                  <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>{file.name}</span>
+                </div>
+                <span className="text-xs px-1.5 py-0.5"
+                  style={{ backgroundColor: cat.color + '18', color: cat.color, fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
+                  {cat.label.toUpperCase()}
+                </span>
+                <span className="label-mono whitespace-nowrap" style={{ fontFamily: 'var(--font-mono)' }}>{file.size}</span>
+                <div className="flex items-center gap-3">
+                  <span className="label-mono whitespace-nowrap" style={{ fontFamily: 'var(--font-mono)' }}>{file.uploadedAt}</span>
+                  <button onClick={() => onDelete(file.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = '#f87171')}
+                    onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-// Chat Tab
-function ChatTab({
-  documents,
-  currentProject,
-  messages,
-  isLoading,
-  onSendMessage
-}: {
-  documents: Document[]
+// ─── Chat Tab ─────────────────────────────────────────────
+const QUICK_PROMPTS = [
+  'What are the key contract milestones and deadlines?',
+  'List all submittals required and their status',
+  'Summarize all open RFIs by trade',
+  'Find conflicts between drawings and specifications',
+  'What are the liquidated damages provisions?',
+  'Summarize the schedule of values',
+]
+
+function ChatTab({ files, currentProject, messages, isLoading, onSendMessage }: {
+  files: UploadedFile[]
   currentProject: Project | null
   messages: Message[]
   isLoading: boolean
-  onSendMessage: (message: string) => Promise<void>
+  onSendMessage: (msg: string) => Promise<void>
 }) {
   const [input, setInput] = useState('')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return
-    const messageToSend = input
+    const msg = input
     setInput('')
-    await onSendMessage(messageToSend)
+    await onSendMessage(msg)
   }
 
-  const quickActions = [
-    'Summarize all documents',
-    'Find any conflicts',
-    'What are the payment terms?',
-    'List all deadlines'
-  ]
+  const hasFiles = files.length > 0
+  const placeholder = !currentProject
+    ? 'Select a project first…'
+    : !hasFiles
+      ? 'Upload files to this project first…'
+      : 'Ask anything about your project files…'
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 8rem)' }}>
       {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>AI Chat Assistant</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Ask questions about your documents</p>
+      <div className="mb-4 flex-shrink-0">
+        <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// AI ASSISTANT</p>
+        <h1 className="text-2xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>
+          Ask Foreperson
+        </h1>
       </div>
 
-      {/* Quick Actions */}
-      {messages.length === 1 && documents.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {quickActions.map((action, i) => (
-            <button
-              key={i}
-              onClick={() => setInput(action)}
-              className="px-3 py-1.5 rounded-full text-sm transition-theme"
+      {/* Quick prompts */}
+      {messages.length <= 1 && hasFiles && (
+        <div className="flex flex-wrap gap-2 mb-4 flex-shrink-0">
+          {QUICK_PROMPTS.map((p, i) => (
+            <button key={i} onClick={() => setInput(p)}
+              className="text-xs px-3 py-1.5 transition-colors"
               style={{
                 backgroundColor: 'var(--card)',
                 border: '1px solid var(--border)',
-                color: 'var(--text-secondary)'
+                color: 'var(--text-secondary)',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.65rem',
+                letterSpacing: '0.03em',
               }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'
-                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'
-                ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
-              }}
-            >
-              {action}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)' }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
+              {p}
             </button>
           ))}
         </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-2">
-        {messages.map(msg => (
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+        {messages.map((msg) => (
           <div key={msg.id}>
             {msg.role === 'assistant' ? (
               <div className="flex gap-3 max-w-4xl">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1"
-                  style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
-                >
-                  <MessageSquare size={13} style={{ color: 'var(--accent)' }} />
+                <div className="w-7 h-7 flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{ backgroundColor: 'var(--accent)', flexShrink: 0 }}>
+                  <span style={{ color: 'var(--accent-dark)', fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700 }}>FP</span>
                 </div>
-                <div
-                  className="flex-1 rounded-xl px-4 py-3 text-sm leading-relaxed"
-                  style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
-                >
-                  <ReactMarkdown
-                    components={{
-                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                      strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                      em: ({ children }) => <em className="italic">{children}</em>,
-                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                      li: ({ children }) => <li className="ml-2">{children}</li>,
-                      code: ({ children }) => (
-                        <code className="px-1.5 py-0.5 rounded text-sm font-mono" style={{ backgroundColor: 'var(--surface)' }}>
-                          {children}
-                        </code>
-                      ),
-                      pre: ({ children }) => (
-                        <pre className="p-3 rounded overflow-x-auto mb-2" style={{ backgroundColor: 'var(--surface)' }}>
-                          {children}
-                        </pre>
-                      ),
-                      h1: ({ children }) => <h1 className="text-xl font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
-                      h2: ({ children }) => <h2 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                      h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-2 first:mt-0">{children}</h3>,
-                      blockquote: ({ children }) => (
-                        <blockquote className="border-l-4 pl-4 italic my-2" style={{ borderColor: 'var(--accent)' }}>
-                          {children}
-                        </blockquote>
-                      ),
-                      a: ({ href, children }) => (
-                        <a href={href} className="underline" style={{ color: 'var(--accent)' }} target="_blank" rel="noopener noreferrer">
-                          {children}
-                        </a>
-                      ),
-                    }}
-                  >
+                <div className="flex-1 text-sm leading-relaxed"
+                  style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '0.75rem 1rem', color: 'var(--text-primary)' }}>
+                  <ReactMarkdown components={{
+                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                    ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                    li: ({ children }) => <li className="ml-2">{children}</li>,
+                    code: ({ children }) => <code className="px-1.5 py-0.5 text-sm" style={{ backgroundColor: 'var(--surface)', fontFamily: 'var(--font-mono)' }}>{children}</code>,
+                    h2: ({ children }) => <h2 className="font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                    h3: ({ children }) => <h3 className="font-bold mb-1 mt-2 first:mt-0">{children}</h3>,
+                    blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--accent)' }}>{children}</blockquote>,
+                  }}>
                     {msg.content}
                   </ReactMarkdown>
-                  <p className="text-xs mt-2 opacity-60">
-                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                  <p className="text-xs mt-2 opacity-50">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
             ) : (
               <div className="flex gap-3 justify-end max-w-4xl ml-auto">
-                <div
-                  className="rounded-xl px-4 py-3 text-sm max-w-lg"
-                  style={{ backgroundColor: 'var(--accent)', color: '#fff' }}
-                >
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
-                  <p className="text-xs mt-2 opacity-70">
-                    {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                <div className="text-sm max-w-lg"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-dark)', padding: '0.75rem 1rem' }}>
+                  <p className="whitespace-pre-wrap font-medium">{msg.content}</p>
+                  <p className="text-xs mt-2 opacity-50">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
             )}
           </div>
         ))}
         {isLoading && (
-          <div className="flex gap-3 max-w-4xl">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1"
-              style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}
-            >
-              <MessageSquare size={13} style={{ color: 'var(--accent)' }} />
+          <div className="flex gap-3">
+            <div className="w-7 h-7 flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>
+              <span style={{ color: 'var(--accent-dark)', fontFamily: 'var(--font-mono)', fontSize: '0.55rem', fontWeight: 700 }}>FP</span>
             </div>
-            <div
-              className="rounded-xl px-4 py-3"
-              style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}
-            >
-              <Loader2 className="w-5 h-5 animate-spin" style={{ color: 'var(--text-secondary)' }} />
+            <div className="flex items-center px-4 py-3" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+              <Loader2 size={16} className="animate-spin" style={{ color: 'var(--accent)' }} />
             </div>
           </div>
         )}
-        <div ref={messagesEndRef} />
+        <div ref={bottomRef} />
       </div>
 
       {/* Input */}
-      <div className="mt-4 flex items-center space-x-2">
-        <div className="flex-1 relative">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder={documents.length ? "Ask about your documents..." : currentProject ? "Upload documents to this project first..." : "Select or create a project first..."}
-            disabled={!documents.length || !currentProject || isLoading}
-            className="input pr-12"
-          />
-          <button
-            className="absolute right-3 top-1/2 -translate-y-1/2 transition-theme"
-            style={{ color: 'var(--text-secondary)' }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)')}
-          >
-            <Paperclip className="w-5 h-5" />
-          </button>
-        </div>
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading || !documents.length || !currentProject}
-          className="btn-primary p-3"
-        >
-          <Send className="w-5 h-5" />
+      <div className="mt-4 flex gap-2 flex-shrink-0">
+        <input type="text" value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          placeholder={placeholder}
+          disabled={!hasFiles || !currentProject || isLoading}
+          className="input flex-1" />
+        <button onClick={handleSend}
+          disabled={!input.trim() || isLoading || !hasFiles || !currentProject}
+          className="btn-primary p-3">
+          <Send size={15} />
         </button>
       </div>
     </div>
   )
 }
 
-// Conflicts Tab
-function ConflictsTab({ documents, currentProject }: { documents: Document[]; currentProject: Project | null }) {
+// ─── Conflicts Tab ──────────────────────────────────────────
+function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; currentProject: Project | null }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [conflicts, setConflicts] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const analyzeConflicts = async () => {
-    if (!currentProject || documents.length < 2) {
-      setError('At least 2 documents are required for conflict analysis')
-      return
-    }
-
-    setIsAnalyzing(true)
-    setError(null)
-
+    if (!currentProject || files.length < 2) { setError('Upload at least 2 files for conflict analysis'); return }
+    setIsAnalyzing(true); setError(null)
     try {
       const data = await api.chat.conflicts(parseInt(currentProject.id))
       setConflicts(data.conflicts ?? [])
     } catch (err: any) {
-      setError(err.message || 'Failed to analyze conflicts. Please try again.')
-      setConflicts([])
+      setError(err.message || 'Conflict analysis failed. Please try again.')
     } finally {
       setIsAnalyzing(false)
     }
   }
 
-  const severityColors = {
-    high: 'bg-red-500/20 text-red-400 border-red-500/30',
-    medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-    low: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+  const severityStyle: Record<string, { bg: string; text: string; border: string }> = {
+    high:   { bg: 'rgba(248,113,113,0.07)', text: '#f87171', border: 'rgba(248,113,113,0.2)' },
+    medium: { bg: 'rgba(245,200,0,0.07)',   text: 'var(--accent)', border: 'rgba(245,200,0,0.2)' },
+    low:    { bg: 'rgba(96,165,250,0.07)',   text: '#60a5fa', border: 'rgba(96,165,250,0.2)' },
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Conflict Detection</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>AI-powered analysis of document discrepancies</p>
+          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// CONFLICT DETECTION</p>
+          <h1 className="text-2xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>Conflicts</h1>
         </div>
-        <button
-          onClick={analyzeConflicts}
-          disabled={isAnalyzing || documents.length < 2}
-          className="btn-primary flex items-center space-x-2"
-        >
-          {isAnalyzing ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Analyzing...</span>
-            </>
-          ) : (
-            <>
-              <AlertTriangle className="w-5 h-5" />
-              <span>Analyze Documents</span>
-            </>
-          )}
+        <button onClick={analyzeConflicts}
+          disabled={isAnalyzing || files.length < 2}
+          className="btn-primary flex items-center gap-2 flex-shrink-0">
+          {isAnalyzing ? <><Loader2 size={14} className="animate-spin" /> Analyzing…</> : <><AlertTriangle size={14} /> Analyze</>}
         </button>
       </div>
 
       {error && (
-        <div className="card border-red-500/30 bg-red-500/10 p-4">
-          <p className="text-red-400">{error}</p>
+        <div className="text-xs px-3 py-2" style={{ color: '#f87171', backgroundColor: 'rgba(248,113,113,0.07)', border: '1px solid rgba(248,113,113,0.2)' }}>
+          {error}
         </div>
       )}
 
-      {documents.length < 2 ? (
-        <div className="card text-center py-12">
-          <FileSearch className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
-          <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 documents to detect conflicts</p>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>The AI will compare your documents and find discrepancies</p>
+      {files.length < 2 ? (
+        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
+          <FileSearch size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 files to detect conflicts</p>
         </div>
       ) : conflicts.length === 0 && !isAnalyzing ? (
-        <div className="card text-center py-12">
-          <AlertTriangle className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
-          <p className="mb-2" style={{ color: 'var(--text-secondary)' }}>No conflicts analyzed yet</p>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Click "Analyze Documents" to start</p>
+        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
+          <AlertTriangle size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Click Analyze to scan for conflicts between your files</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {conflicts.map(conflict => (
-            <div key={conflict.id} className={`card border ${severityColors[conflict.severity as keyof typeof severityColors]}`}>
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="font-semibold text-lg" style={{ color: 'var(--text-primary)' }}>{conflict.title}</h3>
-                <span className={`px-2 py-1 rounded text-xs uppercase font-medium ${severityColors[conflict.severity as keyof typeof severityColors]}`}>
-                  {conflict.severity}
-                </span>
-              </div>
-              <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>{conflict.description}</p>
-              <div className="flex flex-wrap gap-2">
-                {conflict.documents.map((doc: string, i: number) => (
-                  <span key={i} className="px-2 py-1 rounded text-sm" style={{ backgroundColor: 'var(--surface)', color: 'var(--text-secondary)' }}>
-                    {doc}
+        <div className="space-y-3">
+          {conflicts.map((c) => {
+            const s = severityStyle[c.severity] ?? severityStyle.medium
+            return (
+              <div key={c.id} className="p-5" style={{ backgroundColor: s.bg, border: `1px solid ${s.border}` }}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
+                  <span className="text-xs px-2 py-0.5 flex-shrink-0"
+                    style={{ backgroundColor: s.bg, color: s.text, border: `1px solid ${s.border}`, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>
+                    {c.severity.toUpperCase()}
                   </span>
-                ))}
+                </div>
+                <p className="text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>{c.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  {c.documents.map((doc: string, i: number) => (
+                    <span key={i} className="text-xs px-2 py-0.5"
+                      style={{ backgroundColor: 'var(--surface)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>
+                      {doc}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-// Compare Tab
-function CompareTab({ documents }: { documents: Document[] }) {
+// ─── Compare Tab ────────────────────────────────────────────
+function CompareTab({ files }: { files: UploadedFile[] }) {
   const [doc1, setDoc1] = useState('')
   const [doc2, setDoc2] = useState('')
-  const [comparison, setComparison] = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
   const [isComparing, setIsComparing] = useState(false)
 
   const handleCompare = async () => {
     if (!doc1 || !doc2) return
     setIsComparing(true)
-    // Simulate comparison
-    await new Promise(resolve => setTimeout(resolve, 2000))
-    setComparison(`## Comparison: ${documents.find(d => d.id === doc1)?.name} vs ${documents.find(d => d.id === doc2)?.name}
-
-### Key Differences:
-1. **Scope of Work**: Document 1 includes exterior landscaping, Document 2 does not.
-2. **Timeline**: Document 1 specifies 180 days, Document 2 specifies 150 days.
-3. **Payment Schedule**: Different milestone breakdowns.
-
-### Similarities:
-- Both reference the same project specifications
-- Same contractor information
-- Identical insurance requirements`)
+    await new Promise((r) => setTimeout(r, 1800))
+    const f1 = files.find((f) => f.id === doc1)?.name ?? 'File 1'
+    const f2 = files.find((f) => f.id === doc2)?.name ?? 'File 2'
+    setResult(`## ${f1} vs ${f2}\n\n### Key Differences\n- Scope items differ between the two documents\n- Timeline specifications vary\n- Payment terms are defined differently\n\n### Similarities\n- Both reference the same project specifications\n- Same contractor information\n- Identical insurance requirements`)
     setIsComparing(false)
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Document Comparison</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Compare any two documents side by side</p>
+        <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// DOCUMENT COMPARE</p>
+        <h1 className="text-2xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>Compare</h1>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <div>
-          <label className="input-label">First Document</label>
-          <select
-            value={doc1}
-            onChange={(e) => setDoc1(e.target.value)}
-            className="input"
-          >
-            <option value="">Select a document...</option>
-            {documents.filter(d => d.id !== doc2).map(doc => (
-              <option key={doc.id} value={doc.id}>{doc.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="input-label">Second Document</label>
-          <select
-            value={doc2}
-            onChange={(e) => setDoc2(e.target.value)}
-            className="input"
-          >
-            <option value="">Select a document...</option>
-            {documents.filter(d => d.id !== doc1).map(doc => (
-              <option key={doc.id} value={doc.id}>{doc.name}</option>
-            ))}
-          </select>
-        </div>
+        {[
+          { value: doc1, other: doc2, setter: setDoc1, label: 'First File' },
+          { value: doc2, other: doc1, setter: setDoc2, label: 'Second File' },
+        ].map(({ value, other, setter, label }) => (
+          <div key={label}>
+            <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}>{label}</label>
+            <select value={value} onChange={(e) => setter(e.target.value)} className="input appearance-none">
+              <option value="">Select a file…</option>
+              {files.filter((f) => f.id !== other).map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+        ))}
       </div>
 
-      <button
-        onClick={handleCompare}
-        disabled={!doc1 || !doc2 || isComparing}
-        className="btn-primary flex items-center space-x-2"
-      >
-        {isComparing ? (
-          <>
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>Comparing...</span>
-          </>
-        ) : (
-          <>
-            <GitCompare className="w-5 h-5" />
-            <span>Compare Documents</span>
-          </>
-        )}
+      <button onClick={handleCompare} disabled={!doc1 || !doc2 || isComparing} className="btn-primary flex items-center gap-2">
+        {isComparing ? <><Loader2 size={14} className="animate-spin" /> Comparing…</> : <><GitCompare size={14} /> Compare Files</>}
       </button>
 
-      {comparison && (
-        <div className="card">
-          <pre className="whitespace-pre-wrap font-sans text-sm" style={{ color: 'var(--text-primary)' }}>{comparison}</pre>
+      {result ? (
+        <div className="p-5 text-sm leading-relaxed" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
+          <ReactMarkdown>{result}</ReactMarkdown>
         </div>
-      )}
-
-      {!comparison && documents.length < 2 && (
-        <div className="card text-center py-12">
-          <GitCompare className="w-12 h-12 mx-auto mb-4" style={{ color: 'var(--text-secondary)' }} />
-          <p style={{ color: 'var(--text-secondary)' }}>Upload at least 2 documents to compare them</p>
+      ) : files.length < 2 ? (
+        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
+          <GitCompare size={32} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 files to compare them</p>
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
 
-// Settings Tab
+// ─── Settings Tab ───────────────────────────────────────────
 function SettingsTab() {
-  const [apiKey, setApiKey] = useState('')
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveMessage, setSaveMessage] = useState('')
-
-  const handleSaveApiKey = async () => {
-    if (!apiKey.trim()) return
-    setSaveMessage('This feature is no longer available.')
-  }
-
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-5 max-w-xl">
       <div>
-        <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>Manage your account and preferences</p>
+        <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// ACCOUNT</p>
+        <h1 className="text-2xl font-black uppercase" style={{ fontFamily: 'var(--font-display)' }}>Settings</h1>
       </div>
 
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Profile</h2>
-        <div className="space-y-4">
-          <div>
-            <label className="input-label">Name</label>
-            <input type="text" className="input" placeholder="Your name" />
-          </div>
-          <div>
-            <label className="input-label">Email</label>
-            <input type="email" className="input" placeholder="you@company.com" />
-          </div>
+      <div className="p-5 space-y-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+        <h2 className="text-xs font-bold uppercase tracking-wider" style={{ letterSpacing: '0.08em' }}>Profile</h2>
+        <div>
+          <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}>Name</label>
+          <input type="text" className="input" placeholder="Your name" />
         </div>
-      </div>
-
-      <div className="card">
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>API Key</h2>
-        <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Add your OpenAI API key to enable AI features</p>
-        <div className="space-y-4">
-          <div>
-            <label className="input-label">OpenAI API Key</label>
-            <input
-              type="password"
-              className="input"
-              placeholder="sk-..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={handleSaveApiKey}
-              disabled={isSaving || !apiKey.trim()}
-              className="btn-primary flex items-center space-x-2"
-            >
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <span>Save API Key</span>
-              )}
-            </button>
-            {saveMessage && (
-              <span className={saveMessage.includes('✓') ? 'text-green-400' : 'text-red-400'}>
-                {saveMessage}
-              </span>
-            )}
-          </div>
+        <div>
+          <label className="block text-xs font-medium mb-1.5 uppercase tracking-wider" style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}>Email</label>
+          <input type="email" className="input" placeholder="you@company.com" />
         </div>
+        <button className="btn-primary text-xs px-4 py-2">Save changes</button>
       </div>
 
-      <div className="card border-red-500/30">
-        <h2 className="text-lg font-semibold mb-4 text-red-400">Danger Zone</h2>
-        <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>Permanently delete your account and all data</p>
-        <button className="px-4 py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30 transition-colors">
+      <div className="p-5" style={{ backgroundColor: 'rgba(248,113,113,0.04)', border: '1px solid rgba(248,113,113,0.2)' }}>
+        <h2 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#f87171', letterSpacing: '0.08em' }}>Danger Zone</h2>
+        <p className="text-xs mb-4" style={{ color: 'var(--text-secondary)' }}>Permanently delete your account and all project data.</p>
+        <button className="text-xs px-4 py-2 transition-colors" style={{ backgroundColor: 'rgba(248,113,113,0.1)', color: '#f87171', border: '1px solid rgba(248,113,113,0.3)' }}>
           Delete Account
         </button>
       </div>
@@ -1139,428 +896,291 @@ function SettingsTab() {
   )
 }
 
-// Main Dashboard
+// ─── Main Dashboard ─────────────────────────────────────────
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
 export default function DashboardPage() {
-  const [sidebarOpen, setSidebarOpen] = useState(true) // Default to open on desktop
-  // Load activeTab from localStorage or default to 'documents'
-  const [activeTab, setActiveTab] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('activeTab') || 'documents'
-    }
-    return 'documents'
-  })
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [activeTab, setActiveTab] = useState(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('activeTab') ?? 'files') : 'files'
+  )
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProject] = useState<Project | null>(null)
-  const [documents, setDocuments] = useState<Document[]>([])
+  const [files, setFiles] = useState<UploadedFile[]>([])
   const [isUploading, setIsUploading] = useState(false)
-  const [showAddProjectModal, setShowAddProjectModal] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
+  const [showDeleteProject, setShowDeleteProject] = useState(false)
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
   const [chatMessages, setChatMessages] = useState<Message[]>([])
   const [isChatLoading, setIsChatLoading] = useState(false)
-  const [chatHistoryLoaded, setChatHistoryLoaded] = useState<{ [projectId: string]: boolean }>({})
-  const [showDeleteProjectModal, setShowDeleteProjectModal] = useState(false)
-  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null)
+  const [chatHistoryLoaded, setChatHistoryLoaded] = useState<Record<string, boolean>>({})
 
   // Load projects on mount
-  useEffect(() => {
-    loadProjects()
-  }, [])
+  useEffect(() => { loadProjects() }, [])
 
-  // Load documents when project changes
+  // Load files when project changes
   useEffect(() => {
     if (currentProject) {
-      loadDocuments()
-      // Reset chat history loaded flag for new project
-      setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: false }))
+      loadFiles()
+      setChatHistoryLoaded((prev) => ({ ...prev, [currentProject.id]: false }))
     } else {
-      setDocuments([])
+      setFiles([])
       setChatMessages([])
     }
   }, [currentProject])
 
-  // Load chat history when switching to chat tab or when project changes
+  // Load chat when switching to chat tab
   useEffect(() => {
-    if (activeTab === 'chat' && currentProject) {
-      // Only load if we haven't loaded for this project yet
-      if (!chatHistoryLoaded[currentProject.id]) {
-        loadChatHistory()
-        setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: true }))
-      }
+    if (activeTab === 'chat' && currentProject && !chatHistoryLoaded[currentProject.id]) {
+      loadChatHistory()
     }
   }, [activeTab, currentProject])
 
   const loadProjects = async () => {
     try {
       const data = await api.projects.list()
-      const projectsList = data.map((p: any) => ({
-        id: p.id.toString(),
-        name: p.name,
-        documents: p.document_count || 0
-      }))
-      setProjects(projectsList)
-
-      // Set current project to first one, or create default if none exist
-      if (projectsList.length > 0) {
-        setCurrentProject(projectsList[0])
+      const list = data.map((p: any) => ({ id: p.id.toString(), name: p.name, fileCount: p.document_count ?? 0 }))
+      setProjects(list)
+      if (list.length > 0) {
+        setCurrentProject(list[0])
       } else {
-        // Create a default project if none exist
-        handleAddProject('My Project')
+        // Auto-create default project, but don't crash on failure
+        try { await handleAddProject('My First Project') } catch { /* ignore */ }
       }
-    } catch (error) {
-      console.error('Failed to load projects:', error)
+    } catch (err) {
+      console.error('Failed to load projects:', err)
     }
   }
 
-  const loadDocuments = async () => {
+  const loadFiles = async () => {
     if (!currentProject) return
-
     try {
       const data = await api.documents.list(parseInt(currentProject.id))
-      setDocuments(data.map((d: any) => ({
+      setFiles(data.map((d: any) => ({
         id: d.id.toString(),
         name: d.original_filename,
-        type: d.document_type || 'unknown',
-        uploadedAt: d.created_at?.split('T')[0] || 'Unknown',
-        size: formatFileSize(d.file_size || 0)
+        type: d.document_type ?? 'unknown',
+        size: formatFileSize(d.file_size ?? 0),
+        uploadedAt: d.created_at?.split('T')[0] ?? '—',
       })))
-    } catch (error) {
-      console.error('Failed to load documents:', error)
+    } catch (err) {
+      console.error('Failed to load files:', err)
     }
   }
 
   const loadChatHistory = async () => {
     if (!currentProject) return
-
-    // Don't reload if we already have messages for this project
-    const projectKey = currentProject.id
-    if (chatHistoryLoaded[projectKey] && chatMessages.length > 0) {
-      return
-    }
-
     try {
       const data = await api.chat.history(parseInt(currentProject.id))
-      if (data && (data as any).messages && (data as any).messages.length > 0) {
-        // Convert database messages to UI format
-        const formattedMessages = (data as any).messages.map((msg: any) => ({
-          id: msg.id.toString(),
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.created_at)
-        }))
-        setChatMessages(formattedMessages)
-        setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
+      const msgs = (data as any).messages
+      if (msgs?.length > 0) {
+        setChatMessages(msgs.map((m: any) => ({
+          id: m.id.toString(), role: m.role, content: m.content, timestamp: new Date(m.created_at)
+        })))
       } else {
-        // No messages yet, show welcome message only if chat is empty
-        setChatMessages(prev => {
-          if (prev.length === 0 || (prev.length === 1 && prev[0].id === '1' && prev[0].role === 'assistant')) {
-            return [{
-              id: '1',
-              role: 'assistant',
-              content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
-              timestamp: new Date()
-            }]
-          }
-          return prev // Keep existing messages
-        })
-        setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
+        setChatMessages([{
+          id: '0', role: 'assistant',
+          content: 'Hello! I\'m Foreperson — your construction AI. Upload drawings, specs, contracts, RFIs, schedules, or any project file, then ask me anything about your project.',
+          timestamp: new Date(),
+        }])
       }
-    } catch (error) {
-      console.error('Failed to load chat history:', error)
-      // Don't reset messages on error - keep existing ones
-      // Only set welcome message if chat is completely empty
-      setChatMessages(prev => {
-        if (prev.length === 0) {
-          return [{
-            id: '1',
-            role: 'assistant',
-            content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
-            timestamp: new Date()
-          }]
-        }
-        return prev
-      })
+      setChatHistoryLoaded((prev) => ({ ...prev, [currentProject.id]: true }))
+    } catch {
+      setChatMessages([{
+        id: '0', role: 'assistant',
+        content: 'Hello! I\'m Foreperson — your construction AI. Upload your project files and ask me anything.',
+        timestamp: new Date(),
+      }])
     }
   }
 
-  const handleSendMessage = async (message: string) => {
-    if (!currentProject || !message.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: message,
-      timestamp: new Date()
-    }
-
-    // Optimistically add user message
-    setChatMessages(prev => [...prev, userMessage])
-    setIsChatLoading(true)
-
-    try {
-      const data = await api.chat.send(parseInt(currentProject.id), message)
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data.response || 'I apologize, but I encountered an error processing your request.',
-        timestamp: new Date()
-      }
-
-      // Add assistant response (messages are already saved to DB by backend)
-      setChatMessages(prev => [...prev, assistantMessage])
-      // Mark chat history as loaded so we don't reload unnecessarily
-      if (currentProject) {
-        setChatHistoryLoaded(prev => ({ ...prev, [currentProject.id]: true }))
-      }
-    } catch (error) {
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again.',
-        timestamp: new Date()
-      }
-      setChatMessages(prev => [...prev, errorMessage])
-    } finally {
-      setIsChatLoading(false)
-    }
-  }
-
+  // Project actions — throws on failure so modal can show error
   const handleAddProject = async (name: string, description?: string) => {
-    try {
-      const newProject = await api.projects.create(name, description)
-      const project = {
-        id: newProject.id.toString(),
-        name: newProject.name,
-        documents: 0
-      }
-      setProjects(prev => [...prev, project])
-      setCurrentProject(project)
-      setShowAddProjectModal(false)
-    } catch (error) {
-      console.error('Failed to create project:', error)
-    }
+    const newProj = await api.projects.create(name, description)
+    const proj = { id: newProj.id.toString(), name: newProj.name, fileCount: 0 }
+    setProjects((prev) => [...prev, proj])
+    setCurrentProject(proj)
   }
 
-  const handleDeleteProject = async (projectId: string) => {
+  const handleDeleteProject = (id: string) => {
     if (projects.length <= 1) {
-      alert('Cannot delete the last project. Please create another project first.')
+      alert('Cannot delete the last project. Create another first.')
       return
     }
-
-    setProjectToDelete(projects.find(p => p.id === projectId) || null)
-    setShowDeleteProjectModal(true)
+    setProjectToDelete(projects.find((p) => p.id === id) ?? null)
+    setShowDeleteProject(true)
   }
 
-  const confirmDeleteProject = async () => {
+  const confirmDelete = async () => {
     if (!projectToDelete) return
-
-    try {
-      await api.projects.delete(parseInt(projectToDelete.id))
-
-      // Remove from projects list
-      setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
-
-      // If deleted project was current, switch to another project
-      if (currentProject?.id === projectToDelete.id) {
-        const remainingProjects = projects.filter(p => p.id !== projectToDelete.id)
-        if (remainingProjects.length > 0) {
-          setCurrentProject(remainingProjects[0])
-        } else {
-          setCurrentProject(null)
-        }
-      }
-
-      // Clear chat history if it was the current project
-      if (currentProject?.id === projectToDelete.id) {
-        setChatMessages([])
-        setChatHistoryLoaded(prev => {
-          const updated = { ...prev }
-          delete updated[projectToDelete.id]
-          return updated
-        })
-      }
-
-      setShowDeleteProjectModal(false)
-      setProjectToDelete(null)
-    } catch (error: any) {
-      console.error('Failed to delete project:', error)
-      alert(`Failed to delete project: ${error.message || 'Please try again.'}`)
-    }
+    await api.projects.delete(parseInt(projectToDelete.id))
+    const remaining = projects.filter((p) => p.id !== projectToDelete.id)
+    setProjects(remaining)
+    if (currentProject?.id === projectToDelete.id) setCurrentProject(remaining[0] ?? null)
+    setShowDeleteProject(false)
+    setProjectToDelete(null)
   }
 
-  const handleUpload = async (files: FileList) => {
+  const handleUpload = async (fileList: FileList) => {
     if (!currentProject) return
-
     setIsUploading(true)
-
-    for (const file of Array.from(files)) {
+    for (const file of Array.from(fileList)) {
       try {
         const doc = await api.documents.upload(parseInt(currentProject.id), file)
-        setDocuments(prev => [{
-          id: doc.id.toString(),
-          name: doc.original_filename,
-          type: doc.document_type || 'unknown',
+        setFiles((prev) => [{
+          id: doc.id.toString(), name: doc.original_filename,
+          type: doc.document_type ?? 'unknown',
+          size: formatFileSize(doc.file_size ?? 0),
           uploadedAt: new Date().toISOString().split('T')[0],
-          size: formatFileSize(doc.file_size || 0)
         }, ...prev])
-        // Update project document count
-        setProjects(prev => prev.map(p =>
-          p.id === currentProject.id
-            ? { ...p, documents: p.documents + 1 }
-            : p
+        setProjects((prev) => prev.map((p) =>
+          p.id === currentProject.id ? { ...p, fileCount: p.fileCount + 1 } : p
         ))
-      } catch (error) {
-        console.error('Upload failed:', error)
+      } catch (err) {
+        console.error('Upload failed:', err)
       }
     }
     setIsUploading(false)
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteFile = async (id: string) => {
     if (!currentProject) return
-
     try {
       await api.documents.delete(parseInt(currentProject.id), parseInt(id))
-      setDocuments(prev => prev.filter(d => d.id !== id))
-      // Update project document count
-      setProjects(prev => prev.map(p =>
-        p.id === currentProject.id
-          ? { ...p, documents: Math.max(0, p.documents - 1) }
-          : p
+      setFiles((prev) => prev.filter((f) => f.id !== id))
+      setProjects((prev) => prev.map((p) =>
+        p.id === currentProject.id ? { ...p, fileCount: Math.max(0, p.fileCount - 1) } : p
       ))
-    } catch (error) {
-      console.error('Failed to delete document:', error)
+    } catch (err) {
+      console.error('Delete failed:', err)
     }
   }
 
-  const detectDocumentType = (filename: string): string => {
-    const lower = filename.toLowerCase()
-    if (lower.includes('contract')) return 'contract'
-    if (lower.includes('spec')) return 'specification'
-    if (lower.includes('rfi')) return 'rfi'
-    if (lower.includes('submittal')) return 'submittal'
-    if (lower.includes('drawing') || lower.includes('dwg')) return 'drawing'
-    return 'unknown'
+  const handleSendMessage = async (msg: string) => {
+    if (!currentProject) return
+    const userMsg: Message = { id: Date.now().toString(), role: 'user', content: msg, timestamp: new Date() }
+    setChatMessages((prev) => [...prev, userMsg])
+    setIsChatLoading(true)
+    try {
+      const data = await api.chat.send(parseInt(currentProject.id), msg)
+      setChatMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(), role: 'assistant',
+        content: data.response ?? 'No response received.',
+        timestamp: new Date(),
+      }])
+      setChatHistoryLoaded((prev) => ({ ...prev, [currentProject.id]: true }))
+    } catch {
+      setChatMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(), role: 'assistant',
+        content: 'An error occurred. Please try again.', timestamp: new Date(),
+      }])
+    } finally {
+      setIsChatLoading(false)
+    }
   }
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + ' B'
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+  const changeTab = (tab: string) => {
+    setActiveTab(tab)
+    localStorage.setItem('activeTab', tab)
   }
 
-  const tabs = ['Documents', 'AI Chat', 'Conflicts', 'Compare']
-  const tabToId: Record<string, string> = {
-    'Documents': 'documents',
-    'AI Chat': 'chat',
-    'Conflicts': 'conflicts',
-    'Compare': 'compare'
-  }
-  const idToTab: Record<string, string> = Object.fromEntries(
-    Object.entries(tabToId).map(([k, v]) => [v, k])
-  )
-
-  const renderTab = () => {
+  const renderContent = () => {
     switch (activeTab) {
-      case 'documents':
-        return <DocumentsTab documents={documents} onUpload={handleUpload} onDelete={handleDelete} />
+      case 'files':
+        return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={isUploading} />
       case 'chat':
-        return (
-          <ChatTab
-            documents={documents}
-            currentProject={currentProject}
-            messages={chatMessages}
-            isLoading={isChatLoading}
-            onSendMessage={handleSendMessage}
-          />
-        )
+        return <ChatTab files={files} currentProject={currentProject} messages={chatMessages} isLoading={isChatLoading} onSendMessage={handleSendMessage} />
       case 'conflicts':
-        return <ConflictsTab documents={documents} currentProject={currentProject} />
+        return <ConflictsTab files={files} currentProject={currentProject} />
       case 'compare':
-        return <CompareTab documents={documents} />
+        return <CompareTab files={files} />
       case 'settings':
         return <SettingsTab />
       default:
-        return <DocumentsTab documents={documents} onUpload={handleUpload} onDelete={handleDelete} />
+        return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={isUploading} />
     }
+  }
+
+  const TAB_LABELS: Record<string, string> = {
+    files: 'Files', chat: 'AI Chat', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings'
   }
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
-      <AddProjectModal
-        isOpen={showAddProjectModal}
-        onClose={() => setShowAddProjectModal(false)}
-        onAdd={handleAddProject}
-      />
+      {/* Modals */}
+      <NewProjectModal isOpen={showNewProject} onClose={() => setShowNewProject(false)} onAdd={handleAddProject} />
       <DeleteProjectModal
-        isOpen={showDeleteProjectModal}
-        onClose={() => {
-          setShowDeleteProjectModal(false)
-          setProjectToDelete(null)
-        }}
-        onConfirm={confirmDeleteProject}
-        projectName={projectToDelete?.name || ''}
+        isOpen={showDeleteProject}
+        onClose={() => { setShowDeleteProject(false); setProjectToDelete(null) }}
+        onConfirm={confirmDelete}
+        projectName={projectToDelete?.name ?? ''}
       />
+
+      {/* Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         activeTab={activeTab}
-        setActiveTab={(tab) => {
-          setActiveTab(tab)
-          localStorage.setItem('activeTab', tab)
-        }}
+        setActiveTab={changeTab}
         projects={projects}
         currentProject={currentProject}
         setCurrentProject={setCurrentProject}
-        onAddProject={() => setShowAddProjectModal(true)}
+        onNewProject={() => setShowNewProject(true)}
         onDeleteProject={handleDeleteProject}
       />
 
-      <main className="flex-1 min-w-0" style={{ backgroundColor: 'var(--bg)' }}>
-        {/* Top header bar */}
-        <div
-          className="flex items-center justify-between px-4 py-2"
-          style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)' }}
-        >
-          {/* Tab bar */}
-          <div className="flex border-b-0 flex-1" style={{ backgroundColor: 'var(--surface)' }}>
-            {tabs.map((tab) => {
-              const tabId = tabToId[tab]
-              const isActive = activeTab === tabId
+      {/* Main */}
+      <main className="flex-1 min-w-0 flex flex-col" style={{ backgroundColor: 'var(--bg)' }}>
+        {/* Top bar */}
+        <div className="flex items-center gap-0 flex-shrink-0"
+          style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', height: '3.5rem' }}>
+
+          {/* Mobile hamburger */}
+          <button onClick={() => setSidebarOpen(true)}
+            className="lg:hidden p-4 transition-colors"
+            style={{ color: 'var(--text-secondary)' }}>
+            <Menu size={16} />
+          </button>
+
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 px-4 border-r" style={{ borderColor: 'var(--border)', height: '100%' }}>
+            <span className="label-mono whitespace-nowrap" style={{ fontFamily: 'var(--font-mono)' }}>
+              {currentProject?.name ?? 'No project'}
+            </span>
+          </div>
+
+          {/* Tab nav */}
+          <div className="flex items-center h-full overflow-x-auto">
+            {['files', 'chat', 'conflicts', 'compare'].map((tab) => {
+              const isActive = activeTab === tab
               return (
-                <button
-                  key={tab}
-                  onClick={() => {
-                    setActiveTab(tabId)
-                    localStorage.setItem('activeTab', tabId)
-                  }}
-                  className="px-5 py-3 text-sm font-medium transition-theme relative"
+                <button key={tab} onClick={() => changeTab(tab)}
+                  className="h-full px-5 text-xs font-medium uppercase tracking-wider relative transition-colors flex-shrink-0"
                   style={{
                     color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    letterSpacing: '0.07em',
+                    fontFamily: 'var(--font-mono)',
                     background: 'none',
-                    border: 'none'
-                  }}
-                >
-                  {tab}
+                    border: 'none',
+                  }}>
+                  {TAB_LABELS[tab]}
                   {isActive && (
-                    <span
-                      className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
-                      style={{ backgroundColor: 'var(--accent)' }}
-                    />
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: 'var(--accent)' }} />
                   )}
                 </button>
               )
             })}
           </div>
-          {/* Settings tab indicator in header */}
-          {activeTab === 'settings' && (
-            <span className="text-sm font-medium px-2" style={{ color: 'var(--text-primary)' }}>Settings</span>
-          )}
         </div>
 
         {/* Content */}
-        <div className="p-4 sm:p-6 lg:p-8">
-          {renderTab()}
+        <div className="flex-1 p-6 lg:p-8 overflow-y-auto">
+          {renderContent()}
         </div>
       </main>
     </div>
