@@ -10,26 +10,31 @@ Use count_objects_in_image(image_b64) as the main entry point.
 
 import base64
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
-import cv2
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
+_yolo_lock = threading.Lock()
 _yolo_model = None
+_YOLO_FAILED = object()  # sentinel — distinct from None
 
 
 def _get_yolo():
     global _yolo_model
     if _yolo_model is None:
-        try:
-            from ultralytics import YOLO
-            _yolo_model = YOLO("yolov8n.pt")
-            logger.info("VisionCounter: YOLOv8n loaded")
-        except Exception as e:
-            logger.warning("VisionCounter: YOLO unavailable (%s)", e)
+        with _yolo_lock:
+            if _yolo_model is None:  # double-checked locking
+                try:
+                    from ultralytics import YOLO
+                    _yolo_model = YOLO("yolov8n.pt")
+                    logger.info("VisionCounter: YOLOv8n loaded")
+                except Exception as e:
+                    logger.warning("VisionCounter: YOLO unavailable (%s)", e)
+                    _yolo_model = _YOLO_FAILED  # Issue 3 fix: stop retrying
+    if _yolo_model is _YOLO_FAILED:
+        return None
     return _yolo_model
 
 
@@ -41,15 +46,18 @@ class VisionCount:
     label: str         # human-readable e.g. "12 objects detected by YOLO"
 
 
-def _is_drawing(image: np.ndarray) -> bool:
+def _is_drawing(image) -> bool:
     """Return True if the image looks like a technical drawing (low colour saturation)."""
+    import cv2
+    import numpy as np
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     mean_saturation = float(np.mean(hsv[:, :, 1]))
     return mean_saturation < 30
 
 
-def count_with_yolo(image: np.ndarray, target_class: Optional[str] = None) -> VisionCount:
+def count_with_yolo(image, target_class: Optional[str] = None) -> VisionCount:
     """Run YOLOv8 detection. Count all objects, or only those matching target_class."""
+    import numpy as np
     model = _get_yolo()
     if model is None:
         return VisionCount(count=0, method="none", confidence=0.0, label="YOLO unavailable")
@@ -75,8 +83,10 @@ def count_with_yolo(image: np.ndarray, target_class: Optional[str] = None) -> Vi
         return VisionCount(count=0, method="none", confidence=0.0, label=f"YOLO error: {e}")
 
 
-def count_with_contours(image: np.ndarray) -> VisionCount:
+def count_with_contours(image) -> VisionCount:
     """Count distinct closed regions in a drawing using OpenCV contour detection."""
+    import cv2
+    import numpy as np
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -109,6 +119,8 @@ def count_objects_in_image(image_b64: str, target_class: Optional[str] = None) -
     - Technical drawings (low colour saturation) → OpenCV contours
     - Photographs → YOLO
     """
+    import cv2
+    import numpy as np
     try:
         img_bytes = base64.b64decode(image_b64)
         arr = np.frombuffer(img_bytes, np.uint8)
