@@ -522,51 +522,37 @@ async def chat(
             status_code=500,
             detail="AI assistant not available"
         )
-    
-    # Get documents for the specified project (or all projects if no project_id)
-    doc_list = []
-    
-    if chat_request.project_id:
-        # Only get documents from the specified project
-        project = db.query(Project).filter(
-            Project.id == chat_request.project_id,
-            Project.owner_id == current_user.id
-        ).first()
 
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        documents = db.query(Document).filter(Document.project_id == chat_request.project_id).all()
-        for doc in documents:
-            # Include all documents — even those with no extracted text may have
-            # visual content (drawings, maps) that the vision API can process at query time.
-            text = doc.extracted_text or ""
-            word_count = len(text.split()) if text else 0
-            doc_list.append({
-                "filename": doc.original_filename,
-                "document_type": doc.document_type or "unknown",
-                "text_content": text,
-                "word_count": word_count,
-                "file_path": doc.file_path,
-            })
-    else:
-        # Fallback: get all documents from all projects (for backward compatibility)
-        projects = db.query(Project).filter(Project.owner_id == current_user.id).all()
-        for project in projects:
-            documents = db.query(Document).filter(Document.project_id == project.id).all()
-            for doc in documents:
-                if doc.extracted_text:
-                    word_count = len(doc.extracted_text.split())
-                    doc_list.append({
-                        "filename": doc.original_filename,
-                        "document_type": doc.document_type or "unknown",
-                        "text_content": doc.extracted_text,
-                        "word_count": word_count
-                    })
-
-    # Get or create chat session for this project
+    # project_id is required for all chat operations
     if not chat_request.project_id:
         raise HTTPException(status_code=400, detail="project_id is required")
+
+    # Get documents for the specified project
+    doc_list = []
+
+    project = db.query(Project).filter(
+        Project.id == chat_request.project_id,
+        Project.owner_id == current_user.id
+    ).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    documents = db.query(Document).filter(Document.project_id == chat_request.project_id).all()
+    for doc in documents:
+        # Include all documents — even those with no extracted text may have
+        # visual content (drawings, maps) that the vision API can process at query time.
+        text = doc.extracted_text or ""
+        word_count = len(text.split()) if text else 0
+        doc_list.append({
+            "filename": doc.original_filename,
+            "document_type": doc.document_type or "unknown",
+            "text_content": text,
+            "word_count": word_count,
+            "file_path": doc.file_path,
+        })
+
+    # Get or create chat session for this project
 
     chat = db.query(Chat).filter(
         Chat.project_id == chat_request.project_id,

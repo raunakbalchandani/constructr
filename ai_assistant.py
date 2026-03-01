@@ -134,6 +134,19 @@ def _load_image_b64(file_path: str) -> Optional[str]:
         return None
 
 
+def _detect_mime_type(data: bytes) -> str:
+    """Detect image MIME type from raw bytes using magic bytes."""
+    if data[:2] == b'\xff\xd8':
+        return "image/jpeg"
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return "image/png"
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return "image/gif"
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return "image/webp"
+    return "image/png"  # safe default
+
+
 def _pdf_to_images(file_path: str) -> List[str]:
     """Render PDF pages to base64-encoded PNG images (requires pymupdf)."""
     try:
@@ -260,10 +273,12 @@ class ConstructionAI:
         content: List[dict] = [{"type": "text", "text": text_prompt}]
         for _doc_name, images in images_by_doc:
             for img_b64 in images:
+                img_bytes = base64.b64decode(img_b64)
+                mime = _detect_mime_type(img_bytes)
                 content.append({
                     "type": "image_url",
                     "image_url": {
-                        "url": f"data:image/png;base64,{img_b64}",
+                        "url": f"data:{mime};base64,{img_b64}",
                         "detail": "high",
                     },
                 })
@@ -295,11 +310,13 @@ class ConstructionAI:
         content: List[dict] = []
         for _doc_name, images in images_by_doc:
             for img_b64 in images:
+                img_bytes = base64.b64decode(img_b64)
+                mime = _detect_mime_type(img_bytes)
                 content.append({
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": "image/png",
+                        "media_type": mime,
                         "data": img_b64,
                     },
                 })

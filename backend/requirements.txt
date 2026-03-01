@@ -22,3 +22,12 @@ Pillow==10.2.0
 
 # Rate limiting
 slowapi==0.1.9
+
+# AI providers
+openai>=1.0.0
+anthropic>=0.20.0
+
+# Computer Vision (for reliable object counting)
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
