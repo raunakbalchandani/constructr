@@ -9,3 +9,4 @@ PAGINATION_DEFAULT_LIMIT = 20
 PAGINATION_MAX_LIMIT = 100
 CHAT_RATE_LIMIT = "10/minute"
 CONFLICTS_RATE_LIMIT = "5/minute"
+CHAT_HISTORY_WINDOW = 20  # number of recent messages to include as conversation history

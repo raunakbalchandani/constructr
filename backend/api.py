@@ -25,7 +25,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
-from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT
+from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT, CHAT_HISTORY_WINDOW
 from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, init_db
 from backend.auth import (
     get_current_user, 
@@ -548,12 +548,15 @@ async def chat(
     db.refresh(user_message)
 
     # Load conversation history for this thread (excluding the message just saved)
-    raw_history = db.query(ChatMessage).filter(
-        ChatMessage.chat_id == chat.id,
-        ChatMessage.id != user_message.id
-    ).order_by(ChatMessage.created_at.asc()).all()
-
-    chat_history = [{"role": m.role, "content": m.content} for m in raw_history[-20:]]
+    raw_history = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.chat_id == chat.id, ChatMessage.id != user_message.id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(CHAT_HISTORY_WINDOW)
+        .all()
+    )
+    raw_history.reverse()  # restore chronological order
+    chat_history = [{"role": m.role, "content": m.content} for m in raw_history]
 
     # Create AI assistant and get response
     try:

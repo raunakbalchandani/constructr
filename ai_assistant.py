@@ -12,7 +12,7 @@ import os
 import re
 import logging
 from pathlib import Path
-from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL, DEFAULT_ANTHROPIC_MODEL
+from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL, DEFAULT_ANTHROPIC_MODEL, CHAT_HISTORY_WINDOW
 from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
 
 logger = logging.getLogger(__name__)
@@ -262,7 +262,7 @@ class ConstructionAI:
 
         vision_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         if history:
-            for h in history[-20:]:
+            for h in history[-CHAT_HISTORY_WINDOW:]:
                 vision_messages.append({"role": h["role"], "content": h["content"]})
         vision_messages.append({"role": "user", "content": content})
 
@@ -294,19 +294,21 @@ class ConstructionAI:
                         "data": img_b64,
                     },
                 })
-        history_text = ""
+        content.append({"type": "text", "text": text_prompt})
+
+        # Build proper multi-turn messages
+        chat_messages = []
         if history:
-            history_text = "Prior conversation:\n"
-            for h in history[-20:]:
-                history_text += f"{h['role'].upper()}: {h['content']}\n"
-            history_text += "\n"
-        content.append({"type": "text", "text": history_text + text_prompt})
+            for h in history[-CHAT_HISTORY_WINDOW:]:
+                chat_messages.append({"role": h["role"], "content": h["content"]})
+        # Current user turn with images + text
+        chat_messages.append({"role": "user", "content": content})
 
         response = provider._client.messages.create(
             model=provider._model,
             max_tokens=kwargs.get("max_tokens", 2000),
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": content}],
+            messages=chat_messages,
         )
         return response.content[0].text
 
@@ -556,7 +558,7 @@ Brief description of the document's purpose
         """
         msgs = [{"role": "system", "content": system}]
         if history:
-            for h in history[-20:]:
+            for h in history[-CHAT_HISTORY_WINDOW:]:
                 msgs.append({"role": h["role"], "content": h["content"]})
         msgs.append({"role": "user", "content": prompt})
         return msgs
