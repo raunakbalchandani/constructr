@@ -547,6 +547,14 @@ async def chat(
     db.commit()
     db.refresh(user_message)
 
+    # Load conversation history for this thread (excluding the message just saved)
+    raw_history = db.query(ChatMessage).filter(
+        ChatMessage.chat_id == chat.id,
+        ChatMessage.id != user_message.id
+    ).order_by(ChatMessage.created_at.asc()).all()
+
+    chat_history = [{"role": m.role, "content": m.content} for m in raw_history[-20:]]
+
     # Create AI assistant and get response
     try:
         assistant = ConstructionAI(model=chat_request.model)
@@ -555,7 +563,7 @@ async def chat(
         if doc_list:
             assistant.load_documents(doc_list)
 
-        response = assistant.ask_question(chat_request.message)
+        response = assistant.ask_question(chat_request.message, history=chat_history)
         
         # Save assistant response to database
         assistant_message = ChatMessage(

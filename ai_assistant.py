@@ -245,6 +245,7 @@ class ConstructionAI:
         provider: OpenAIProvider,
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
+        history=None,
         **kwargs,
     ) -> str:
         """Send a vision request via OpenAI (gpt-4o / gpt-4o-mini support vision)."""
@@ -259,12 +260,15 @@ class ConstructionAI:
                     },
                 })
 
+        vision_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if history:
+            for h in history[-20:]:
+                vision_messages.append({"role": h["role"], "content": h["content"]})
+        vision_messages.append({"role": "user", "content": content})
+
         response = provider._client.chat.completions.create(
             model=provider._model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
+            messages=vision_messages,
             max_tokens=kwargs.get("max_tokens", 2000),
             temperature=kwargs.get("temperature", 0.4),
         )
@@ -275,6 +279,7 @@ class ConstructionAI:
         provider: AnthropicProvider,
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
+        history=None,
         **kwargs,
     ) -> str:
         """Send a vision request via Anthropic (claude-3 / claude-4 support vision)."""
@@ -289,7 +294,13 @@ class ConstructionAI:
                         "data": img_b64,
                     },
                 })
-        content.append({"type": "text", "text": text_prompt})
+        history_text = ""
+        if history:
+            history_text = "Prior conversation:\n"
+            for h in history[-20:]:
+                history_text += f"{h['role'].upper()}: {h['content']}\n"
+            history_text += "\n"
+        content.append({"type": "text", "text": history_text + text_prompt})
 
         response = provider._client.messages.create(
             model=provider._model,
@@ -303,6 +314,7 @@ class ConstructionAI:
         self,
         text_prompt: str,
         images_by_doc: List[Tuple[str, List[str]]],
+        history=None,
         **kwargs,
     ) -> str:
         """Try each provider in order using vision API; fall back on quota errors."""
@@ -310,9 +322,9 @@ class ConstructionAI:
         for provider in self._providers:
             try:
                 if isinstance(provider, OpenAIProvider):
-                    return self._vision_openai(provider, text_prompt, images_by_doc, **kwargs)
+                    return self._vision_openai(provider, text_prompt, images_by_doc, history=history, **kwargs)
                 elif isinstance(provider, AnthropicProvider):
-                    return self._vision_anthropic(provider, text_prompt, images_by_doc, **kwargs)
+                    return self._vision_anthropic(provider, text_prompt, images_by_doc, history=history, **kwargs)
             except Exception as e:
                 if _is_quota_error(e):
                     logger.warning(
@@ -537,7 +549,19 @@ Brief description of the document's purpose
         except Exception as e:
             return self._handle_api_error(e)
 
-    def ask_question(self, question: str) -> str:
+    def _build_messages(self, system: str, prompt: str, history: list = None) -> list:
+        """Build the messages array with optional conversation history.
+
+        history: list of {"role": "user"|"assistant", "content": str}
+        """
+        msgs = [{"role": "system", "content": system}]
+        if history:
+            for h in history[-20:]:
+                msgs.append({"role": h["role"], "content": h["content"]})
+        msgs.append({"role": "user", "content": prompt})
+        return msgs
+
+    def ask_question(self, question: str, history: list = None) -> str:
         """Answer a construction question, optionally grounded in uploaded documents."""
         try:
             if self.documents:
@@ -580,7 +604,7 @@ Answer using the documents where relevant. Where drawings or images are provided
                 if images_by_doc:
                     try:
                         return self._complete_with_vision(
-                            prompt, images_by_doc, max_tokens=2000, temperature=0.4
+                            prompt, images_by_doc, history=history, max_tokens=2000, temperature=0.4
                         )
                     except Exception as e:
                         logger.warning(
@@ -588,22 +612,17 @@ Answer using the documents where relevant. Where drawings or images are provided
                         )
 
                 return self._complete(
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
+                    messages=self._build_messages(SYSTEM_PROMPT, prompt, history),
                     max_tokens=2000,
                     temperature=0.4,
                 )
             else:
                 return self._complete(
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {
-                            "role": "user",
-                            "content": f"Question: {question}\n\nAnswer from your construction expertise. Be direct and specific.",
-                        },
-                    ],
+                    messages=self._build_messages(
+                        SYSTEM_PROMPT,
+                        f"Question: {question}\n\nAnswer from your construction expertise. Be direct and specific.",
+                        history,
+                    ),
                     max_tokens=2000,
                     temperature=0.4,
                 )
