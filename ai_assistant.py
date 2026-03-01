@@ -39,13 +39,10 @@ SYSTEM_PROMPT = """You are an expert construction project consultant and AI assi
 
 
 class ConstructionAI:
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini"):
-        """Initialize the AI assistant.
-        
-        Args:
-            api_key: OpenAI API key
-            model: Model to use (gpt-4o-mini recommended for cost efficiency)
-        """
+    def __init__(self, model: str = "gpt-4o-mini"):
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY environment variable is required.")
         self.client = openai.OpenAI(api_key=api_key)
         self.model = model
         self.documents = []

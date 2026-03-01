@@ -143,10 +143,6 @@ class ConflictResponse(BaseModel):
     documents: List[str]
 
 
-class APIKeyUpdate(BaseModel):
-    openai_api_key: str
-
-
 # Initialize database on startup
 @app.on_event("startup")
 async def startup():
@@ -186,18 +182,6 @@ async def login(user_data: UserLogin, db: Session = Depends(get_db)):
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user info."""
     return current_user
-
-
-@app.put("/auth/api-key")
-async def update_api_key(
-    data: APIKeyUpdate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Update user's OpenAI API key."""
-    current_user.openai_api_key = data.openai_api_key
-    db.commit()
-    return {"message": "API key updated"}
 
 
 # ============ Project Routes ============
@@ -363,18 +347,16 @@ async def upload_document(
     # Detect document type - use AI if available, otherwise use filename
     doc_type = detect_document_type(file_info["original_filename"])
     
-    # Use AI to detect document type if we have API key (even with minimal text)
+    # Use AI to detect document type if available (even with minimal text)
     if ConstructionAI:
         try:
-            api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
-            if api_key:
-                ai_assistant = ConstructionAI(api_key=api_key)
-                # Use extracted text if available, otherwise use filename for detection
-                text_for_detection = extracted_text if extracted_text else ""
-                doc_type = ai_assistant.detect_document_type(
-                    file_info["original_filename"], 
-                    text_for_detection
-                )
+            ai_assistant = ConstructionAI()
+            # Use extracted text if available, otherwise use filename for detection
+            text_for_detection = extracted_text if extracted_text else ""
+            doc_type = ai_assistant.detect_document_type(
+                file_info["original_filename"],
+                text_for_detection
+            )
         except Exception as e:
             # Log error but fall back to filename-based detection
             import logging
@@ -473,15 +455,6 @@ async def chat(
     db: Session = Depends(get_db)
 ):
     """Chat with AI about documents."""
-    # Get user's API key
-    api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
-    
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="No OpenAI API key configured. Please add your API key in settings."
-        )
-    
     if not ConstructionAI:
         raise HTTPException(
             status_code=500,
@@ -557,8 +530,8 @@ async def chat(
     
     # Create AI assistant and get response
     try:
-        assistant = ConstructionAI(api_key=api_key)
-        
+        assistant = ConstructionAI()
+
         # Load documents if available
         if doc_list:
             assistant.load_documents(doc_list)
@@ -655,21 +628,12 @@ async def analyze_conflicts(
             detail="At least 2 documents are required for conflict analysis"
         )
     
-    # Get user's API key
-    api_key = current_user.openai_api_key or os.environ.get("OPENAI_API_KEY")
-    
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="No OpenAI API key configured. Please add your API key in settings."
-        )
-    
     if not ConstructionAI:
         raise HTTPException(
             status_code=500,
             detail="AI assistant not available"
         )
-    
+
     # Prepare document list for AI
     doc_list = []
     doc_name_map = {}
@@ -693,7 +657,7 @@ async def analyze_conflicts(
     
     # Use AI to find conflicts
     try:
-        assistant = ConstructionAI(api_key=api_key)
+        assistant = ConstructionAI()
         assistant.load_documents(doc_list)
         conflict_analysis = assistant.find_conflicts()
         
