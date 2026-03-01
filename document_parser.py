@@ -1,4 +1,8 @@
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Try to import better PDF libraries, fallback to PyPDF2
 try:
     import fitz  # pymupdf - MUCH better than PyPDF2
@@ -144,7 +148,7 @@ class ConstructionDocumentParser:
             
             return image
         except Exception as e:
-            print(f"Image preprocessing error: {e}, using original image")
+            logger.warning(f"Image preprocessing error: {e}, using original image")
             return image
     
     def _extract_title_block_text(self, page_image: Image.Image) -> str:
@@ -166,7 +170,7 @@ class ConstructionDocumentParser:
             title_text = pytesseract.image_to_string(title_block_img, config=config)
             return title_text.strip()
         except Exception as e:
-            print(f"Title block extraction error: {e}")
+            logger.warning(f"Title block extraction error: {e}")
             return ""
     
     def _extract_annotations_text(self, page_image: Image.Image) -> str:
@@ -183,7 +187,7 @@ class ConstructionDocumentParser:
             annotations_text = pytesseract.image_to_string(processed_img, config=config)
             return annotations_text.strip()
         except Exception as e:
-            print(f"Annotations extraction error: {e}")
+            logger.warning(f"Annotations extraction error: {e}")
             return ""
     
     def _extract_text_with_ocr(self, page_image: Image.Image, page_num: int) -> str:
@@ -261,11 +265,11 @@ class ConstructionDocumentParser:
             
         except pytesseract.TesseractNotFoundError:
             error_msg = "[OCR failed - Tesseract binary not found. Install with: brew install tesseract (macOS) or sudo apt-get install tesseract-ocr (Ubuntu)]"
-            print(f"OCR error on page {page_num}: {error_msg}")
+            logger.error(f"OCR error on page {page_num}: {error_msg}")
             return error_msg
         except Exception as e:
             error_msg = f"[OCR failed: {str(e)}]"
-            print(f"OCR error on page {page_num}: {e}")
+            logger.error(f"OCR error on page {page_num}: {e}")
             return error_msg
     
     def _extract_construction_patterns(self, text: str) -> str:
@@ -297,7 +301,7 @@ class ConstructionDocumentParser:
             img = Image.open(io.BytesIO(img_data))
             return img
         except Exception as e:
-            print(f"Error converting PDF page to image: {e}")
+            logger.error(f"Error converting PDF page to image: {e}")
             return None
     
     def extract_text_from_pdf(self, file_path: str) -> str:
@@ -330,7 +334,7 @@ class ConstructionDocumentParser:
                 
                 # Second pass: OCR pages that need it
                 if pages_needing_ocr and HAS_TESSERACT:
-                    print(f"Applying OCR to {len(pages_needing_ocr)} page(s) in {Path(file_path).name}")
+                    logger.info(f"Applying OCR to {len(pages_needing_ocr)} page(s) in {Path(file_path).name}")
                     for page_num, page in pages_needing_ocr:
                         page_image = self._pdf_page_to_image(page)
                         if page_image:
@@ -349,7 +353,7 @@ class ConstructionDocumentParser:
                 doc.close()
                 return text if text.strip() else "No text found in PDF"
             except Exception as e:
-                print(f"pymupdf error for {file_path}: {e}, trying fallback...")
+                logger.warning(f"pymupdf error for {file_path}: {e}, trying fallback...")
         
         # Try pdfplumber as second option (excellent for structured content)
         if HAS_PDFPLUMBER:
@@ -372,7 +376,7 @@ class ConstructionDocumentParser:
                                         text += " | ".join([str(cell) if cell else "" for cell in row]) + "\n"
                 return text if text.strip() else "No text found in PDF"
             except Exception as e:
-                print(f"pdfplumber error for {file_path}: {e}, trying fallback...")
+                logger.warning(f"pdfplumber error for {file_path}: {e}, trying fallback...")
         
         # Fallback to PyPDF2 if available
         if HAS_PYPDF2:
@@ -390,7 +394,7 @@ class ConstructionDocumentParser:
                             text += "[No text content]\n"
                     return text
             except Exception as e:
-                print(f"PyPDF2 error for {file_path}: {e}")
+                logger.error(f"PyPDF2 error for {file_path}: {e}")
                 return f"Error: {str(e)}"
         
         return "Error: No PDF extraction library available. Please install pymupdf: pip install pymupdf"
@@ -412,7 +416,7 @@ class ConstructionDocumentParser:
             
             return text
         except Exception as e:
-            print(f"Error reading DOCX {file_path}: {e}")
+            logger.error(f"Error reading DOCX {file_path}: {e}")
             return ""
     
     def extract_text_from_excel(self, file_path: str) -> str:
@@ -433,7 +437,7 @@ class ConstructionDocumentParser:
             
             return text
         except Exception as e:
-            print(f"Error reading Excel {file_path}: {e}")
+            logger.error(f"Error reading Excel {file_path}: {e}")
             return ""
     
     def parse_document(self, file_path: str) -> Dict:
@@ -484,7 +488,7 @@ class ConstructionDocumentParser:
 
         for file_path in directory.rglob('*'):
             if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                print(f"Parsing: {file_path.name}")
+                logger.info(f"Parsing: {file_path.name}")
                 doc_data = self.parse_document(str(file_path))
                 documents.append(doc_data)
 

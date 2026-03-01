@@ -4,9 +4,12 @@ File Storage - Local filesystem storage
 import os
 import shutil
 import uuid
+import logging
 from pathlib import Path
 from typing import Optional
 from fastapi import UploadFile
+
+logger = logging.getLogger(__name__)
 
 from backend.constants import MAX_FILE_SIZE
 

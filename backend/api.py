@@ -10,6 +10,13 @@ from typing import List, Optional
 from datetime import datetime
 import os
 import sys
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -343,8 +350,7 @@ async def upload_document(
                 extracted_text = result.get('text', '') or result.get('content', '')
         except Exception as e:
             # Log error but continue
-            import logging
-            logging.warning(f"Text extraction failed: {e}")
+            logger.warning(f"Text extraction failed: {e}")
             extracted_text = None
     
     # Detect document type using the canonical keyword/pattern scorer

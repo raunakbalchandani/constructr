@@ -5,8 +5,11 @@ Handles all AI/LLM interactions for document analysis.
 
 from typing import List, Dict, Optional
 import os
+import logging
 from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL
 from backend.ai_provider import AIProvider, OpenAIProvider
+
+logger = logging.getLogger(__name__)
 
 # System prompt for construction expertise
 SYSTEM_PROMPT = """You are an expert construction project consultant and AI assistant with deep knowledge of:
@@ -53,7 +56,7 @@ class ConstructionAI:
     def load_documents(self, documents: List[Dict]):
         """Load parsed documents into the AI assistant."""
         self.documents = documents
-        print(f"AI Assistant: Loaded {len(documents)} documents")
+        logger.info(f"AI Assistant: Loaded {len(documents)} documents")
 
     def _build_context(self, max_chars_per_doc: int = None) -> str:
         """Build context string from loaded documents."""
