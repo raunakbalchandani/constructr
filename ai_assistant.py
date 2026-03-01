@@ -3,10 +3,10 @@ Foreperson.ai - AI Assistant Module
 Handles all AI/LLM interactions for document analysis.
 """
 
-import openai
 from typing import List, Dict, Optional
 import os
 from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL
+from backend.ai_provider import AIProvider, OpenAIProvider
 
 # System prompt for construction expertise
 SYSTEM_PROMPT = """You are an expert construction project consultant and AI assistant with deep knowledge of:
@@ -40,14 +40,15 @@ SYSTEM_PROMPT = """You are an expert construction project consultant and AI assi
 
 
 class ConstructionAI:
-    def __init__(self, model: str = DEFAULT_AI_MODEL):
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY environment variable is required.")
-        self.client = openai.OpenAI(api_key=api_key)
-        self.model = model
-        self.documents = []
-        self.max_context_chars = MAX_CONTEXT_CHARS  # Limit context to avoid token limits
+    def __init__(self, provider: 'AIProvider | None' = None, model: str = DEFAULT_AI_MODEL) -> None:
+        if provider is None:
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENAI_API_KEY environment variable is required.")
+            provider = OpenAIProvider(api_key=api_key, model=model)
+        self._provider = provider
+        self.documents: list = []
+        self.max_context_chars = MAX_CONTEXT_CHARS
 
     def load_documents(self, documents: List[Dict]):
         """Load parsed documents into the AI assistant."""
@@ -201,16 +202,14 @@ Based on the filename pattern and construction industry naming conventions, clas
 Respond with ONLY the document type (one word, lowercase, underscore for multi-word)."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            detected_type = self._provider.complete(
                 messages=[
                     {"role": "system", "content": "You are a construction document classification expert. Classify documents based on construction industry standards."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=50,
-                temperature=0.1  # Low temperature for consistent classification
-            )
-            detected_type = response.choices[0].message.content.strip().lower()
+                temperature=0.1,
+            ).strip().lower()
             
             # Validate the response is one of our known types
             valid_types = ['contract', 'specification', 'rfi', 'submittal', 'drawing', 
@@ -292,16 +291,14 @@ Brief description of the document's purpose
 - What should the reader do next?"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            return self._provider.complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1500,
-                temperature=0.3
+                temperature=0.3,
             )
-            return response.choices[0].message.content
         except Exception as e:
             return self._handle_api_error(e)
 
@@ -353,16 +350,14 @@ Brief description of the document's purpose
 - Format your response clearly with headers and bullet points when appropriate"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            return self._provider.complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=2000,
-                temperature=0.4
+                temperature=0.4,
             )
-            return response.choices[0].message.content
         except Exception as e:
             return self._handle_api_error(e)
 
@@ -419,16 +414,14 @@ If no conflicts are found in a category, state "No conflicts identified."
 End with a **Summary** of the most critical conflicts requiring immediate attention."""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            return self._provider.complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=2000,
-                temperature=0.3
+                temperature=0.3,
             )
-            return response.choices[0].message.content
         except Exception as e:
             return self._handle_api_error(e)
 
@@ -500,16 +493,14 @@ Explain:
 5. How should they be used together?"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            return self._provider.complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1500,
-                temperature=0.3
+                temperature=0.3,
             )
-            return response.choices[0].message.content
         except Exception as e:
             return self._handle_api_error(e)
 
@@ -586,15 +577,13 @@ For each risk:
         prompt = prompts.get(info_type, prompts["dates"]).format(context=context)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            return self._provider.complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=2000,
-                temperature=0.3
+                temperature=0.3,
             )
-            return response.choices[0].message.content
         except Exception as e:
             return self._handle_api_error(e)
