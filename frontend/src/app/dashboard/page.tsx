@@ -374,7 +374,7 @@ function OverviewTab({ project, files, setTab }: {
         {[
           { label: 'Total Files', value: files.length.toString(), action: () => setTab('files') },
           { label: 'File Types', value: Object.keys(typeCounts).length.toString(), action: () => setTab('files') },
-          { label: 'AI Ready', value: files.length > 0 ? 'Yes' : 'No', action: () => setTab('chat') },
+          { label: 'AI Ready', value: project ? 'Yes' : '—', action: () => setTab('chat') },
           { label: 'Conflicts', value: '—', action: () => setTab('conflicts') },
         ].map(({ label, value, action }) => (
           <button key={label} onClick={action}
@@ -1148,8 +1148,9 @@ export default function DashboardPage() {
       const data = await api.chat.send(parseInt(current.id), msg)
       setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.response ?? 'No response.', timestamp: new Date() }])
       setChatLoaded((p) => ({ ...p, [current.id]: true }))
-    } catch {
-      setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: 'An error occurred. Please try again.', timestamp: new Date() }])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'An error occurred. Please try again.'
+      setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: msg, timestamp: new Date() }])
     } finally { setChatLoading(false) }
   }
 
@@ -1183,35 +1184,42 @@ export default function DashboardPage() {
         {/* Top bar */}
         <div className="flex items-stretch flex-shrink-0"
           style={{ backgroundColor: 'var(--surface)', borderBottom: '1px solid var(--border)', height: '3.5rem' }}>
-          {/* Mobile menu */}
+          {/* Mobile menu (hidden on desktop) */}
           <button onClick={() => setSidebarOpen(true)} className="lg:hidden px-4 transition-colors" style={{ color: 'var(--text-secondary)', borderRight: '1px solid var(--border)' }}>
             <Menu size={16} />
           </button>
 
-          {/* Project name */}
-          <div className="flex items-center px-5 gap-2" style={{ borderRight: '1px solid var(--border)' }}>
+          {/* Project breadcrumb */}
+          <div className="flex items-center px-5 gap-2 flex-1">
             <FolderOpen size={13} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
             <span className="label-mono whitespace-nowrap" style={{ fontFamily: 'var(--font-mono)' }}>
               {current?.name ?? 'No project'}
             </span>
+            {current && (
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+                / {TAB_LABELS[tab] ?? tab}
+              </span>
+            )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex items-stretch overflow-x-auto scrollbar-hide">
-            {['overview', 'files', 'chat', 'conflicts', 'compare'].map((t) => (
-              <button key={t} onClick={() => changeTab(t)}
-                className="h-full px-5 text-xs font-medium uppercase tracking-wider relative transition-colors flex-shrink-0"
-                style={{
-                  color: tab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontFamily: 'var(--font-mono)',
-                  letterSpacing: '0.07em',
-                  background: 'none', border: 'none',
-                }}>
-                {TAB_LABELS[t]}
-                {tab === t && <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: 'var(--accent)' }} />}
-              </button>
-            ))}
-          </div>
+          {/* Tabs — only shown when sidebar is collapsed */}
+          {!sidebarOpen && (
+            <div className="hidden lg:flex items-stretch overflow-x-auto scrollbar-hide" style={{ borderLeft: '1px solid var(--border)' }}>
+              {['overview', 'files', 'chat', 'conflicts', 'compare'].map((t) => (
+                <button key={t} onClick={() => changeTab(t)}
+                  className="h-full px-5 text-xs font-medium uppercase tracking-wider relative transition-colors flex-shrink-0"
+                  style={{
+                    color: tab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    fontFamily: 'var(--font-mono)',
+                    letterSpacing: '0.07em',
+                    background: 'none', border: 'none',
+                  }}>
+                  {TAB_LABELS[t]}
+                  {tab === t && <span className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: 'var(--accent)' }} />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Content */}
