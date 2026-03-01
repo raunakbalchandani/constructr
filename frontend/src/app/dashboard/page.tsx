@@ -10,7 +10,7 @@ import {
   Upload, Search, Settings, LogOut, Plus, Send,
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
-  ChevronRight, HardHat, FileSignature, LayoutGrid,
+  ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
   List, FolderOpen, Home
 } from 'lucide-react'
 
@@ -177,11 +177,12 @@ function DeleteProjectModal({ isOpen, onClose, onConfirm, name }: {
 
 // ─── Sidebar ───────────────────────────────────────────────
 const NAV = [
-  { id: 'overview', icon: Home,         label: 'Overview' },
-  { id: 'files',    icon: Layers,        label: 'Files' },
-  { id: 'chat',     icon: MessageSquare, label: 'AI Chat' },
-  { id: 'conflicts',icon: AlertTriangle, label: 'Conflicts' },
-  { id: 'compare',  icon: GitCompare,    label: 'Compare' },
+  { id: 'overview',  icon: Home,          label: 'Overview' },
+  { id: 'files',     icon: Layers,        label: 'Files' },
+  { id: 'chat',      icon: MessageSquare, label: 'AI Chat' },
+  { id: 'conflicts', icon: AlertTriangle, label: 'Conflicts' },
+  { id: 'compare',   icon: GitCompare,    label: 'Compare' },
+  { id: 'settings',  icon: Settings,      label: 'Settings' },
 ]
 
 function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setCurrent, onNew, onDelete }: {
@@ -296,9 +297,8 @@ function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setC
             </nav>
 
             {/* Footer */}
-            <div className="px-3 py-3 space-y-px flex-shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
-              {navBtn('settings', Settings, 'Settings')}
-              <div className="flex items-center justify-between px-2 pt-1">
+            <div className="px-3 py-3 flex-shrink-0" style={{ borderTop: '1px solid var(--border)' }}>
+              <div className="flex items-center justify-between px-2 py-1">
                 <button onClick={() => { localStorage.removeItem('token'); window.location.href = '/login' }}
                   className="flex items-center gap-2 text-xs transition-colors py-1.5"
                   style={{ color: 'var(--text-secondary)' }}
@@ -688,13 +688,25 @@ const PROMPTS_BY_CATEGORY = [
   { cat: 'PROJECT STATUS', items: ["Summarize all open RFIs by trade", "What submittals are still outstanding?", "List all schedule milestones and deadlines"] },
 ]
 
-function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel }: {
+const ALL_MODELS = [
+  { id: 'gpt-4o',                   label: 'GPT-4o',          provider: 'OpenAI' },
+  { id: 'gpt-4o-mini',              label: 'GPT-4o Mini',     provider: 'OpenAI' },
+  { id: 'gpt-4-turbo',              label: 'GPT-4 Turbo',     provider: 'OpenAI' },
+  { id: 'gpt-3.5-turbo',            label: 'GPT-3.5 Turbo',   provider: 'OpenAI' },
+  { id: 'claude-opus-4-6',          label: 'Claude Opus 4.6', provider: 'Anthropic' },
+  { id: 'claude-sonnet-4-6',        label: 'Claude Sonnet 4.6', provider: 'Anthropic' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'Anthropic' },
+]
+
+function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange }: {
   files: UploadedFile[]; currentProject: Project | null
   messages: Message[]; isLoading: boolean
   onSendMessage: (msg: string) => Promise<void>
   activeModel: string
+  onModelChange: (model: string) => void
 }) {
   const [input, setInput] = useState('')
+  const [modelOpen, setModelOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -705,24 +717,71 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
     await onSendMessage(msg)
   }
 
+  const activeModelLabel = ALL_MODELS.find(m => m.id === activeModel)?.label ?? activeModel
+
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 8rem)' }}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div>
-          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
-            // AI ASSISTANT &nbsp;·&nbsp; <span style={{ color: 'var(--accent)' }}>{activeModel}</span>
-          </p>
+          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// AI ASSISTANT</p>
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Ask Foreperson</h1>
         </div>
-        {files.length > 0 && (
-          <div className="text-right">
-            <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>CONTEXT</p>
-            <p className="text-xl font-black" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>
-              {files.length} FILES
-            </p>
+        <div className="flex items-center gap-3">
+          {/* Model picker */}
+          <div className="relative">
+            <button
+              onClick={() => setModelOpen(o => !o)}
+              className="flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
+              style={{
+                border: '1px solid var(--border)',
+                backgroundColor: modelOpen ? 'var(--surface)' : 'var(--card)',
+                fontFamily: 'var(--font-mono)',
+                color: 'var(--accent)',
+                letterSpacing: '0.05em',
+              }}
+            >
+              <span>{activeModelLabel}</span>
+              <ChevronDown size={11} />
+            </button>
+            {modelOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 min-w-[220px]"
+                style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>
+                {['OpenAI', 'Anthropic'].map(provider => (
+                  <div key={provider}>
+                    <div className="px-3 py-1.5" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                      <span className="label-mono" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{provider.toUpperCase()}</span>
+                    </div>
+                    {ALL_MODELS.filter(m => m.provider === provider).map(m => (
+                      <button key={m.id}
+                        onClick={() => { onModelChange(m.id); setModelOpen(false) }}
+                        className="w-full text-left px-3 py-2 text-xs transition-colors"
+                        style={{
+                          color: m.id === activeModel ? 'var(--accent)' : 'var(--text-secondary)',
+                          backgroundColor: m.id === activeModel ? 'rgba(245,200,0,0.05)' : 'transparent',
+                          fontFamily: 'var(--font-mono)',
+                          borderBottom: '1px solid var(--border)',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = m.id === activeModel ? 'rgba(245,200,0,0.05)' : 'transparent' }}
+                      >
+                        {m.id === activeModel ? '▶ ' : '   '}{m.label}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+          {files.length > 0 && (
+            <div className="text-right">
+              <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>CONTEXT</p>
+              <p className="text-xl font-black" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>
+                {files.length} FILES
+              </p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Prompt suggestions — show when chat is fresh */}
@@ -1278,7 +1337,7 @@ export default function DashboardPage() {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
-      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} />
+      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
@@ -1286,7 +1345,7 @@ export default function DashboardPage() {
     }
   }
 
-  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings' }
+  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings → AI Model' }
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
@@ -1325,7 +1384,7 @@ export default function DashboardPage() {
           {/* Tabs — only shown when sidebar is collapsed */}
           {!sidebarOpen && (
             <div className="hidden lg:flex items-stretch overflow-x-auto scrollbar-hide" style={{ borderLeft: '1px solid var(--border)' }}>
-              {['overview', 'files', 'chat', 'conflicts', 'compare'].map((t) => (
+              {['overview', 'files', 'chat', 'conflicts', 'compare', 'settings'].map((t) => (
                 <button key={t} onClick={() => changeTab(t)}
                   className="h-full px-5 text-xs font-medium uppercase tracking-wider relative transition-colors flex-shrink-0"
                   style={{
