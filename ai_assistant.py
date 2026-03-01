@@ -3,11 +3,15 @@ Foreperson.ai - AI Assistant Module
 Handles all AI/LLM interactions for document analysis.
 
 Provider priority: OpenAI → Anthropic (automatic failover on quota/rate errors).
+Vision: drawings/images are passed directly to vision-capable models at query time.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+import base64
 import os
+import re
 import logging
+from pathlib import Path
 from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL, DEFAULT_ANTHROPIC_MODEL
 from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
 
@@ -53,6 +57,16 @@ ANTHROPIC_MODELS = {
     "claude-sonnet-4-6",
     "claude-haiku-4-5-20251001",
 }
+
+# Document types that contain visual/spatial information worth sending to vision API
+VISUAL_DOC_TYPES = {"drawing", "floor_plan", "site_plan", "unknown"}
+
+# Image file extensions that can be passed directly to the vision API
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".webp", ".bmp"}
+
+# Cap images per request to keep token usage sane
+MAX_IMAGES_PER_REQUEST = 6
+MAX_PDF_PAGES = 5
 
 
 def _build_providers(model: Optional[str] = None) -> List[AIProvider]:
@@ -101,6 +115,98 @@ def _build_providers(model: Optional[str] = None) -> List[AIProvider]:
     return providers
 
 
+# ── Vision helpers ─────────────────────────────────────────────────────────────
+
+def _load_image_b64(file_path: str) -> Optional[str]:
+    """Load an image file and return its base64-encoded contents, or None on error."""
+    try:
+        with open(file_path, "rb") as f:
+            return base64.b64encode(f.read()).decode()
+    except Exception as e:
+        logger.warning("Vision: failed to read image %s: %s", file_path, e)
+        return None
+
+
+def _pdf_to_images(file_path: str) -> List[str]:
+    """Render PDF pages to base64-encoded PNG images (requires pymupdf)."""
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        logger.warning("Vision: pymupdf not installed; PDF pages won't be passed to vision API")
+        return []
+
+    images: List[str] = []
+    try:
+        pdf = fitz.open(file_path)
+        pages = min(len(pdf), MAX_PDF_PAGES)
+        for page_num in range(pages):
+            page = pdf.load_page(page_num)
+            # 150 DPI — good balance of quality vs token cost for construction drawings
+            mat = fitz.Matrix(150 / 72, 150 / 72)
+            pix = page.get_pixmap(matrix=mat)
+            images.append(base64.b64encode(pix.tobytes("png")).decode())
+        pdf.close()
+        logger.info("Vision: rendered %d page(s) from %s", pages, Path(file_path).name)
+    except Exception as e:
+        logger.warning("Vision: failed to render PDF %s: %s", file_path, e)
+
+    return images
+
+
+def _docx_to_images(file_path: str) -> List[str]:
+    """Extract embedded images from a DOCX file as base64 strings."""
+    import zipfile
+
+    images: List[str] = []
+    try:
+        with zipfile.ZipFile(file_path, "r") as z:
+            media = [n for n in z.namelist() if n.startswith("word/media/")]
+            for img_name in media:
+                ext = Path(img_name).suffix.lower()
+                if ext in (".wmf", ".emf") or ext not in IMAGE_EXTENSIONS:
+                    continue
+                try:
+                    img_data = z.read(img_name)
+                    images.append(base64.b64encode(img_data).decode())
+                    if len(images) >= MAX_IMAGES_PER_REQUEST:
+                        break
+                except Exception as e:
+                    logger.warning("Vision: failed to read DOCX image %s: %s", img_name, e)
+    except Exception as e:
+        logger.warning("Vision: failed to open DOCX %s: %s", file_path, e)
+
+    if images:
+        logger.info("Vision: extracted %d image(s) from DOCX %s", len(images), Path(file_path).name)
+    return images
+
+
+def _get_doc_images(doc: Dict) -> List[str]:
+    """Return base64-encoded images for a document, or [] if none are available.
+
+    - Image files (jpg, png, etc.) → load directly.
+    - DOCX files → extract embedded images from word/media/.
+    - PDFs typed as drawings/plans → render pages via pymupdf.
+    - Everything else → no images.
+    """
+    file_path = doc.get("file_path", "")
+    if not file_path or not os.path.exists(file_path):
+        return []
+
+    ext = Path(file_path).suffix.lower()
+
+    if ext in IMAGE_EXTENSIONS:
+        b64 = _load_image_b64(file_path)
+        return [b64] if b64 else []
+
+    if ext in (".docx", ".doc"):
+        return _docx_to_images(file_path)
+
+    if ext == ".pdf" and doc.get("document_type") in VISUAL_DOC_TYPES:
+        return _pdf_to_images(file_path)
+
+    return []
+
+
 class ConstructionAI:
     def __init__(self, model: Optional[str] = None) -> None:
         self._providers = _build_providers(model)
@@ -132,6 +238,92 @@ class ConstructionAI:
         # All providers exhausted
         raise RuntimeError(
             f"All AI providers are unavailable (quota exceeded). Last error: {last_err}"
+        )
+
+    def _vision_openai(
+        self,
+        provider: OpenAIProvider,
+        text_prompt: str,
+        images_by_doc: List[Tuple[str, List[str]]],
+        **kwargs,
+    ) -> str:
+        """Send a vision request via OpenAI (gpt-4o / gpt-4o-mini support vision)."""
+        content: List[dict] = [{"type": "text", "text": text_prompt}]
+        for _doc_name, images in images_by_doc:
+            for img_b64 in images:
+                content.append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{img_b64}",
+                        "detail": "high",
+                    },
+                })
+
+        response = provider._client.chat.completions.create(
+            model=provider._model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": content},
+            ],
+            max_tokens=kwargs.get("max_tokens", 2000),
+            temperature=kwargs.get("temperature", 0.4),
+        )
+        return response.choices[0].message.content
+
+    def _vision_anthropic(
+        self,
+        provider: AnthropicProvider,
+        text_prompt: str,
+        images_by_doc: List[Tuple[str, List[str]]],
+        **kwargs,
+    ) -> str:
+        """Send a vision request via Anthropic (claude-3 / claude-4 support vision)."""
+        content: List[dict] = []
+        for _doc_name, images in images_by_doc:
+            for img_b64 in images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": img_b64,
+                    },
+                })
+        content.append({"type": "text", "text": text_prompt})
+
+        response = provider._client.messages.create(
+            model=provider._model,
+            max_tokens=kwargs.get("max_tokens", 2000),
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": content}],
+        )
+        return response.content[0].text
+
+    def _complete_with_vision(
+        self,
+        text_prompt: str,
+        images_by_doc: List[Tuple[str, List[str]]],
+        **kwargs,
+    ) -> str:
+        """Try each provider in order using vision API; fall back on quota errors."""
+        last_err: Optional[Exception] = None
+        for provider in self._providers:
+            try:
+                if isinstance(provider, OpenAIProvider):
+                    return self._vision_openai(provider, text_prompt, images_by_doc, **kwargs)
+                elif isinstance(provider, AnthropicProvider):
+                    return self._vision_anthropic(provider, text_prompt, images_by_doc, **kwargs)
+            except Exception as e:
+                if _is_quota_error(e):
+                    logger.warning(
+                        "AI: %s vision quota/rate error (%s), trying next provider.",
+                        type(provider).__name__, e,
+                    )
+                    last_err = e
+                    continue
+                raise
+        raise RuntimeError(
+            f"All AI providers are unavailable for vision (quota exceeded). Last error: {last_err}"
         )
 
     # ── Document context ─────────────────────────────────────────
@@ -166,6 +358,108 @@ Content:
 ---""")
 
         return "\n".join(context_parts)
+
+    def _parse_mentions(self, question: str) -> Tuple[List[Dict], List[str]]:
+        """Extract @mentions from the question.
+
+        Returns (matched_docs, unmatched_terms):
+        - matched_docs: doc dicts whose filename matched an @mention
+        - unmatched_terms: @terms that didn't match any doc (entity references)
+        """
+        raw = re.findall(r'@([\w.\-]+)', question)
+        matched_docs: List[Dict] = []
+        unmatched_terms: List[str] = []
+
+        for mention in raw:
+            mention_lower = mention.lower().rstrip('.,!?;:')
+            found = None
+
+            # Exact match first (filename with or without extension)
+            for doc in self.documents:
+                fname = doc['filename'].lower()
+                stem = Path(doc['filename']).stem.lower()
+                if mention_lower in (fname, stem):
+                    found = doc
+                    break
+
+            # Substring match if no exact match
+            if not found:
+                for doc in self.documents:
+                    stem = Path(doc['filename']).stem.lower()
+                    if mention_lower in stem or stem in mention_lower:
+                        found = doc
+                        break
+
+            if found:
+                if found not in matched_docs:
+                    matched_docs.append(found)
+            else:
+                unmatched_terms.append(mention_lower)
+
+        return matched_docs, unmatched_terms
+
+    def _build_context_prioritized(self, priority_docs: List[Dict]) -> str:
+        """Build context with priority (mentioned) docs at full length, others briefly."""
+        parts = []
+        priority_ids = {id(d) for d in priority_docs}
+        PRIORITY_CHARS = 20_000
+
+        # Mentioned docs: generous limit
+        for doc in priority_docs:
+            text = doc['text_content'][:PRIORITY_CHARS]
+            if len(doc['text_content']) > PRIORITY_CHARS:
+                text += '\n[...content truncated...]'
+            parts.append(f"""
+---
+DOCUMENT: {doc['filename']} ← REFERENCED
+Type: {doc['document_type']}
+Words: {doc['word_count']:,}
+
+Content:
+{text}
+---""")
+
+        # Other docs: brief
+        others = [d for d in self.documents if id(d) not in priority_ids]
+        if others:
+            budget = max(800, (self.max_context_chars - PRIORITY_CHARS * len(priority_docs)) // len(others))
+            for doc in others:
+                text = doc['text_content'][:budget]
+                if len(doc['text_content']) > budget:
+                    text += '\n[...truncated...]'
+                parts.append(f"""
+---
+DOCUMENT: {doc['filename']}
+Type: {doc['document_type']}
+Words: {doc['word_count']:,}
+
+Content:
+{text}
+---""")
+
+        return '\n'.join(parts)
+
+    def _collect_visual_images(self, docs: List[Dict] = None) -> List[Tuple[str, List[str]]]:
+        """Gather images from documents, capped at MAX_IMAGES_PER_REQUEST total.
+
+        If *docs* is given, only those docs are checked (e.g. mentioned docs first).
+        Falls back to all self.documents when docs is None.
+        """
+        source = docs if docs is not None else self.documents
+        result: List[Tuple[str, List[str]]] = []
+        total = 0
+        for doc in source:
+            if total >= MAX_IMAGES_PER_REQUEST:
+                break
+            images = _get_doc_images(doc)
+            if images:
+                take = min(len(images), MAX_IMAGES_PER_REQUEST - total)
+                result.append((doc["filename"], images[:take]))
+                total += take
+                logger.info(
+                    "Vision: queued %d image(s) from '%s'", take, doc["filename"]
+                )
+        return result
 
     # ── Error formatting ─────────────────────────────────────────
 
@@ -245,28 +539,74 @@ Brief description of the document's purpose
 
     def ask_question(self, question: str) -> str:
         """Answer a construction question, optionally grounded in uploaded documents."""
-        if self.documents:
-            context = self._build_context()
-            prompt = f"""Question: {question}
+        try:
+            if self.documents:
+                # Parse @mentions to prioritize specific docs / search for entities
+                mentioned_docs, search_terms = self._parse_mentions(question)
+
+                if mentioned_docs:
+                    context = self._build_context_prioritized(mentioned_docs)
+                    focus = (
+                        f"The user specifically referenced: "
+                        f"{', '.join(d['filename'] for d in mentioned_docs)}. "
+                        "Prioritize those documents in your answer."
+                    )
+                    # Vision: try mentioned docs first, then all docs if under limit
+                    images_by_doc = self._collect_visual_images(docs=mentioned_docs)
+                    if len(images_by_doc) < MAX_IMAGES_PER_REQUEST:
+                        remaining = [d for d in self.documents if d not in mentioned_docs]
+                        images_by_doc += self._collect_visual_images(docs=remaining)
+                        images_by_doc = images_by_doc[:MAX_IMAGES_PER_REQUEST]
+                else:
+                    context = self._build_context()
+                    focus = ""
+                    images_by_doc = self._collect_visual_images()
+
+                entity_note = ""
+                if search_terms:
+                    entity_note = (
+                        f"\nThe user also referenced: {', '.join('@' + t for t in search_terms)}. "
+                        "Search all documents for mentions of these terms and include relevant findings."
+                    )
+
+                prompt = f"""Question: {question}
+{focus}{entity_note}
 
 Project documents:
 {context}
 
-Answer using the documents above where relevant. If a document appears to contain a map, drawing, or image that was analyzed by vision, describe what was found and answer the question based on that. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
-        else:
-            prompt = f"""Question: {question}
+Answer using the documents where relevant. Where drawings or images are provided, examine them carefully — look for callouts, annotations, colored markings, dimensions, sheet references, symbols, and spatial relationships. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
 
-Answer from your construction expertise. Be direct and specific."""
+                if images_by_doc:
+                    try:
+                        return self._complete_with_vision(
+                            prompt, images_by_doc, max_tokens=2000, temperature=0.4
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Vision path failed (%s); falling back to text-only.", e
+                        )
 
-        try:
-            return self._complete(
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=2000,
-                temperature=0.4,
-            )
+                return self._complete(
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=2000,
+                    temperature=0.4,
+                )
+            else:
+                return self._complete(
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {
+                            "role": "user",
+                            "content": f"Question: {question}\n\nAnswer from your construction expertise. Be direct and specific.",
+                        },
+                    ],
+                    max_tokens=2000,
+                    temperature=0.4,
+                )
         except Exception as e:
             return self._handle_api_error(e)
 

@@ -493,15 +493,17 @@ async def chat(
 
         documents = db.query(Document).filter(Document.project_id == chat_request.project_id).all()
         for doc in documents:
-            if doc.extracted_text:
-                # Count words in extracted text
-                word_count = len(doc.extracted_text.split())
-                doc_list.append({
-                    "filename": doc.original_filename,
-                    "document_type": doc.document_type or "unknown",
-                    "text_content": doc.extracted_text,
-                    "word_count": word_count
-                })
+            # Include all documents — even those with no extracted text may have
+            # visual content (drawings, maps) that the vision API can process at query time.
+            text = doc.extracted_text or ""
+            word_count = len(text.split()) if text else 0
+            doc_list.append({
+                "filename": doc.original_filename,
+                "document_type": doc.document_type or "unknown",
+                "text_content": text,
+                "word_count": word_count,
+                "file_path": doc.file_path,
+            })
     else:
         # Fallback: get all documents from all projects (for backward compatibility)
         projects = db.query(Project).filter(Project.owner_id == current_user.id).all()
@@ -664,7 +666,8 @@ async def analyze_conflicts(
                 "filename": doc.original_filename,
                 "document_type": doc.document_type or "unknown",
                 "text_content": doc.extracted_text,
-                "word_count": word_count
+                "word_count": word_count,
+                "file_path": doc.file_path,
             })
             doc_name_map[doc.original_filename] = doc
     

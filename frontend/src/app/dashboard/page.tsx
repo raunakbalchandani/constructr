@@ -698,6 +698,16 @@ const ALL_MODELS = [
   { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'Anthropic' },
 ]
 
+function renderUserMessage(content: string) {
+  // Highlight @mentions in the user bubble
+  const parts = content.split(/(@[\w.\-]+)/)
+  return parts.map((part, i) =>
+    part.startsWith('@')
+      ? <span key={i} style={{ fontWeight: 700, opacity: 0.75 }}>{part}</span>
+      : <span key={i}>{part}</span>
+  )
+}
+
 function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange }: {
   files: UploadedFile[]; currentProject: Project | null
   messages: Message[]; isLoading: boolean
@@ -707,14 +717,61 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 }) {
   const [input, setInput] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
+  const [mentionOpen, setMentionOpen] = useState(false)
+  const [mentionQuery, setMentionQuery] = useState('')
+  const [mentionStart, setMentionStart] = useState(0)
+  const [mentionIndex, setMentionIndex] = useState(0)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
+  const mentionedFiles = files.filter(f =>
+    mentionQuery === '' || f.name.toLowerCase().includes(mentionQuery.toLowerCase())
+  )
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setInput(val)
+    const cursor = e.target.selectionStart ?? val.length
+    const before = val.slice(0, cursor)
+    const atMatch = before.match(/@([\w.]*)$/)
+    if (atMatch) {
+      setMentionQuery(atMatch[1])
+      setMentionStart(before.lastIndexOf('@'))
+      setMentionIndex(0)
+      setMentionOpen(true)
+    } else {
+      setMentionOpen(false)
+    }
+  }
+
+  const selectMention = (filename: string) => {
+    const after = input.slice(mentionStart + 1 + mentionQuery.length)
+    setInput(input.slice(0, mentionStart) + '@' + filename + ' ' + after.trimStart())
+    setMentionOpen(false)
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }
+
   const send = async () => {
     if (!input.trim() || isLoading || !currentProject) return
+    setMentionOpen(false)
     const msg = input; setInput('')
     await onSendMessage(msg)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionOpen) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionedFiles.length - 1)) }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)) }
+      else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault()
+        if (mentionedFiles[mentionIndex]) selectMention(mentionedFiles[mentionIndex].name)
+      }
+      else if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false) }
+      return
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
   const activeModelLabel = ALL_MODELS.find(m => m.id === activeModel)?.label ?? activeModel
@@ -842,7 +899,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
               <div className="flex justify-end max-w-4xl ml-auto">
                 <div className="text-sm max-w-lg"
                   style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-dark)', padding: '0.75rem 1rem' }}>
-                  <p className="whitespace-pre-wrap font-medium">{msg.content}</p>
+                  <p className="whitespace-pre-wrap font-medium">{renderUserMessage(msg.content)}</p>
                   <p className="text-xs mt-1.5 opacity-50">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
@@ -863,18 +920,63 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
       </div>
 
       {/* Input */}
-      <div className="mt-4 flex gap-2 flex-shrink-0">
-        <input type="text" value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()}
-          placeholder={!currentProject ? 'Select a project first…' : files.length === 0 ? 'Ask a general construction question or upload files for project context…' : 'Ask anything about your project…'}
-          disabled={!currentProject || isLoading}
-          className="input flex-1" />
-        <button onClick={send}
-          disabled={!input.trim() || isLoading || !currentProject}
-          className="btn-primary p-3">
-          <Send size={15} />
-        </button>
+      <div className="mt-4 flex-shrink-0">
+        <div className="relative">
+          {/* @mention dropdown */}
+          {mentionOpen && mentionedFiles.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto z-50"
+              style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--accent)', boxShadow: '0 -4px 16px rgba(0,0,0,0.3)' }}>
+              <div className="px-3 py-1.5 flex items-center gap-2"
+                style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--accent)', letterSpacing: '0.08em' }}>
+                  @ REFERENCE DOCUMENT
+                </span>
+              </div>
+              {mentionedFiles.map((f, i) => {
+                const c = cat(f.type)
+                const Icon = c.icon
+                return (
+                  <button key={f.id}
+                    onClick={() => selectMention(f.name)}
+                    className="w-full text-left flex items-center gap-3 px-3 py-2 transition-colors"
+                    style={{
+                      backgroundColor: i === mentionIndex ? 'rgba(245,200,0,0.08)' : 'transparent',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                    onMouseEnter={() => setMentionIndex(i)}>
+                    <Icon size={12} style={{ color: c.color, flexShrink: 0 }} />
+                    <span className="text-xs truncate flex-1" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                      {f.name}
+                    </span>
+                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)', fontSize: '0.6rem' }}>
+                      {c.label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <textarea ref={inputRef} value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              placeholder={!currentProject ? 'Select a project first…' : files.length === 0 ? 'Ask a question or type @ to reference a document…' : 'Ask anything… type @ to reference a document'}
+              disabled={!currentProject || isLoading}
+              className="input flex-1"
+              style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5' }} />
+            <button onClick={send}
+              disabled={!input.trim() || isLoading || !currentProject}
+              className="btn-primary p-3 flex-shrink-0">
+              <Send size={15} />
+            </button>
+          </div>
+        </div>
+        {files.length > 0 && (
+          <p className="mt-1.5 text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            Type @ to reference a specific document · Shift+Enter for new line
+          </p>
+        )}
       </div>
     </div>
   )
