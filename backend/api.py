@@ -28,9 +28,11 @@ from backend.storage import save_file, get_file, delete_file
 # Import document parser and AI assistant from parent
 try:
     from document_parser import ConstructionDocumentParser as DocumentParser
+    from document_parser import detect_document_type
     from ai_assistant import ConstructionAI
 except ImportError:
     DocumentParser = None
+    detect_document_type = None
     ConstructionAI = None
 
 # Initialize FastAPI
@@ -345,24 +347,11 @@ async def upload_document(
             logging.warning(f"Text extraction failed: {e}")
             extracted_text = None
     
-    # Detect document type - use AI if available, otherwise use filename
-    doc_type = detect_document_type(file_info["original_filename"])
-    
-    # Use AI to detect document type if available (even with minimal text)
-    if ConstructionAI:
-        try:
-            ai_assistant = ConstructionAI()
-            # Use extracted text if available, otherwise use filename for detection
-            text_for_detection = extracted_text if extracted_text else ""
-            doc_type = ai_assistant.detect_document_type(
-                file_info["original_filename"],
-                text_for_detection
-            )
-        except Exception as e:
-            # Log error but fall back to filename-based detection
-            import logging
-            logging.warning(f"AI document type detection failed: {e}")
-            pass
+    # Detect document type using the canonical keyword/pattern scorer
+    doc_type = detect_document_type(
+        extracted_text or "",
+        file_info["original_filename"]
+    ) if detect_document_type else "unknown"
     
     # Create document record
     document = Document(
@@ -740,24 +729,6 @@ def _parse_conflict_response(analysis_text: str, document_names: List[str]) -> L
         })
     
     return conflicts
-
-
-# ============ Helper Functions ============
-
-def detect_document_type(filename: str) -> str:
-    """Detect document type from filename."""
-    lower = filename.lower()
-    if 'contract' in lower:
-        return 'contract'
-    elif 'spec' in lower:
-        return 'specification'
-    elif 'rfi' in lower:
-        return 'rfi'
-    elif 'submittal' in lower:
-        return 'submittal'
-    elif 'drawing' in lower or 'dwg' in lower:
-        return 'drawing'
-    return 'unknown'
 
 
 # Run with: uvicorn backend.api:app --reload

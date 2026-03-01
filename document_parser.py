@@ -479,13 +479,19 @@ class ConstructionDocumentParser:
         """Parse all documents in a directory"""
         directory = Path(directory_path)
         documents = []
-        
+
         supported_extensions = ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt']
-        
+
         for file_path in directory.rglob('*'):
             if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
                 print(f"Parsing: {file_path.name}")
                 doc_data = self.parse_document(str(file_path))
                 documents.append(doc_data)
-        
+
         return documents
+
+
+def detect_document_type(text: str, filename: str = "") -> str:
+    """Return document type string. Single canonical implementation."""
+    parser = ConstructionDocumentParser()
+    return parser.identify_document_type(text, filename)
