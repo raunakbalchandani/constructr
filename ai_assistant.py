@@ -1,13 +1,15 @@
 """
 Foreperson.ai - AI Assistant Module
 Handles all AI/LLM interactions for document analysis.
+
+Provider priority: OpenAI → Anthropic (automatic failover on quota/rate errors).
 """
 
 from typing import List, Dict, Optional
 import os
 import logging
-from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL
-from backend.ai_provider import AIProvider, OpenAIProvider
+from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL, DEFAULT_ANTHROPIC_MODEL
+from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
 
 logger = logging.getLogger(__name__)
 
@@ -42,36 +44,94 @@ SYSTEM_PROMPT = """You are an expert construction project consultant and AI assi
 - Note any missing information or ambiguities when relevant"""
 
 
+def _is_quota_error(e: Exception) -> bool:
+    """Return True if this error is a transient quota/rate-limit error that warrants fallback."""
+    msg = str(e).lower()
+    keywords = [
+        "insufficient_quota", "rate_limit", "rate limit", "ratelimit",
+        "overloaded", "quota exceeded", "too many requests",
+        "credit balance", "billing", "capacity",
+    ]
+    return any(kw in msg for kw in keywords)
+
+
+def _build_providers() -> List[AIProvider]:
+    """Build the ordered list of available AI providers from environment variables."""
+    providers: List[AIProvider] = []
+
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            providers.append(OpenAIProvider(api_key=openai_key, model=DEFAULT_AI_MODEL))
+            logger.info("AI: OpenAI provider registered (model=%s)", DEFAULT_AI_MODEL)
+        except Exception as e:
+            logger.warning("AI: Failed to initialise OpenAI provider: %s", e)
+
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        try:
+            providers.append(AnthropicProvider(api_key=anthropic_key, model=DEFAULT_ANTHROPIC_MODEL))
+            logger.info("AI: Anthropic provider registered (model=%s)", DEFAULT_ANTHROPIC_MODEL)
+        except Exception as e:
+            logger.warning("AI: Failed to initialise Anthropic provider: %s", e)
+
+    return providers
+
+
 class ConstructionAI:
-    def __init__(self, provider: 'AIProvider | None' = None, model: str = DEFAULT_AI_MODEL) -> None:
-        if provider is None:
-            api_key = os.environ.get("OPENAI_API_KEY")
-            if not api_key:
-                raise RuntimeError("OPENAI_API_KEY environment variable is required.")
-            provider = OpenAIProvider(api_key=api_key, model=model)
-        self._provider = provider
+    def __init__(self) -> None:
+        self._providers = _build_providers()
+        if not self._providers:
+            raise RuntimeError(
+                "No AI providers configured. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY."
+            )
         self.documents: list = []
         self.max_context_chars = MAX_CONTEXT_CHARS
+
+    # ── Provider dispatch ────────────────────────────────────────
+
+    def _complete(self, messages: List[dict], **kwargs) -> str:
+        """Try each provider in order; fall back on quota/rate errors."""
+        last_err: Optional[Exception] = None
+        for provider in self._providers:
+            try:
+                return provider.complete(messages, **kwargs)
+            except Exception as e:
+                if _is_quota_error(e):
+                    logger.warning(
+                        "AI: %s quota/rate error (%s), trying next provider.",
+                        type(provider).__name__, e,
+                    )
+                    last_err = e
+                    continue
+                # Non-quota errors propagate immediately (bad key, context overflow, etc.)
+                raise
+        # All providers exhausted
+        raise RuntimeError(
+            f"All AI providers are unavailable (quota exceeded). Last error: {last_err}"
+        )
+
+    # ── Document context ─────────────────────────────────────────
 
     def load_documents(self, documents: List[Dict]):
         """Load parsed documents into the AI assistant."""
         self.documents = documents
-        logger.info(f"AI Assistant: Loaded {len(documents)} documents")
+        logger.info("AI Assistant: Loaded %d documents", len(documents))
 
     def _build_context(self, max_chars_per_doc: int = None) -> str:
         """Build context string from loaded documents."""
         if not self.documents:
             return "No documents loaded."
-        
+
         if max_chars_per_doc is None:
             max_chars_per_doc = self.max_context_chars // len(self.documents)
-        
+
         context_parts = []
         for i, doc in enumerate(self.documents):
-            text_preview = doc['text_content'][:max_chars_per_doc]
-            if len(doc['text_content']) > max_chars_per_doc:
+            text_preview = doc["text_content"][:max_chars_per_doc]
+            if len(doc["text_content"]) > max_chars_per_doc:
                 text_preview += "\n[...content truncated...]"
-            
+
             context_parts.append(f"""
 ---
 DOCUMENT {i+1}: {doc['filename']}
@@ -81,55 +141,39 @@ Words: {doc['word_count']:,}
 Content:
 {text_preview}
 ---""")
-        
+
         return "\n".join(context_parts)
 
+    # ── Error formatting ─────────────────────────────────────────
+
     def _handle_api_error(self, e: Exception) -> str:
-        """Handle API errors with user-friendly messages."""
+        """Turn an exception into a user-friendly markdown message."""
         error_msg = str(e)
-        
-        if "insufficient_quota" in error_msg or "429" in error_msg:
-            return """⚠️ **API Quota Exceeded**
 
-Your OpenAI API quota has been exceeded. To resolve:
-
-1. Visit [platform.openai.com/account/billing](https://platform.openai.com/account/billing)
-2. Add or update your payment method
-3. Check your usage limits
-
-**Tip**: The gpt-4o-mini model is very affordable (~$0.15 per 1M tokens)."""
-        
-        elif "invalid_api_key" in error_msg:
-            return """❌ **Invalid API Key**
-
-The API key appears to be invalid. Please check:
-1. The key starts with 'sk-'
-2. There are no extra spaces
-3. The key hasn't been revoked"""
-        
-        elif "context_length" in error_msg:
-            return """⚠️ **Document Too Large**
-
-The combined document content exceeds the model's context limit. 
-Try with fewer or smaller documents."""
-        
+        if "insufficient_quota" in error_msg or "quota" in error_msg.lower() or "All AI providers" in error_msg:
+            return (
+                "⚠️ **AI Quota Exceeded**\n\n"
+                "Both OpenAI and Claude API quotas are currently exhausted.\n\n"
+                "**To resolve:**\n"
+                "- OpenAI: visit [platform.openai.com/account/billing](https://platform.openai.com/account/billing)\n"
+                "- Anthropic: visit [console.anthropic.com](https://console.anthropic.com)\n\n"
+                "Add credits to either account and the assistant will resume automatically."
+            )
+        elif "invalid_api_key" in error_msg or "authentication" in error_msg.lower():
+            return "❌ **Invalid API Key** — please check your API key configuration."
+        elif "context_length" in error_msg or "max_tokens" in error_msg.lower():
+            return "⚠️ **Document Too Large** — try with fewer or smaller documents."
         else:
             return f"❌ **Error**: {error_msg}"
 
+    # ── Public methods ───────────────────────────────────────────
+
     def get_document_summary(self, doc_index: int) -> str:
-        """Generate a comprehensive summary of a specific document.
-        
-        Args:
-            doc_index: Index of the document to summarize
-            
-        Returns:
-            Formatted summary string
-        """
         if doc_index >= len(self.documents):
             return "Document not found."
 
         doc = self.documents[doc_index]
-        text = doc['text_content'][:8000]  # Increased limit for better summaries
+        text = doc["text_content"][:8000]
 
         prompt = f"""Analyze this {doc['document_type']} document and provide a comprehensive summary:
 
@@ -148,36 +192,27 @@ Brief description of the document's purpose
 
 ## Key Parties
 - List all parties, companies, or individuals mentioned
-- Their roles in the project
 
 ## Important Dates & Deadlines
-- Contract dates
-- Milestone dates
-- Submission deadlines
+- Contract dates, milestone dates, submission deadlines
 
 ## Scope & Requirements
-- Main scope of work
-- Key specifications or requirements
-- Quality standards mentioned
+- Main scope of work, key specifications
 
 ## Financial Terms
-- Contract value (if mentioned)
-- Payment terms
-- Cost items
+- Contract value, payment terms, cost items
 
 ## Critical Items & Risks
-- Items requiring immediate attention
-- Potential risks or issues
-- Ambiguities or missing information
+- Items requiring immediate attention, potential risks
 
 ## Recommended Actions
 - What should the reader do next?"""
 
         try:
-            return self._provider.complete(
+            return self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=1500,
                 temperature=0.3,
@@ -186,17 +221,7 @@ Brief description of the document's purpose
             return self._handle_api_error(e)
 
     def ask_question(self, question: str) -> str:
-        """Answer a question as a construction AI assistant.
-        Uses uploaded documents as context when available, but can answer general construction questions.
-        
-        Args:
-            question: User's question
-            
-        Returns:
-            AI response string
-        """
-        # Build context from documents if available
-        context = ""
+        """Answer a construction question, optionally grounded in uploaded documents."""
         if self.documents:
             context = self._build_context()
             prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
@@ -211,7 +236,6 @@ Brief description of the document's purpose
 - If the question relates to the uploaded documents, reference them specifically
 - If the question is general construction knowledge, provide expert guidance even without document context
 - Be practical, actionable, and use construction industry terminology
-- If documents are available but don't contain relevant info, still answer using your expertise
 - Format your response clearly with headers and bullet points when helpful"""
         else:
             prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
@@ -233,10 +257,10 @@ Brief description of the document's purpose
 - Format your response clearly with headers and bullet points when appropriate"""
 
         try:
-            return self._provider.complete(
+            return self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=2000,
                 temperature=0.4,
@@ -245,11 +269,6 @@ Brief description of the document's purpose
             return self._handle_api_error(e)
 
     def find_conflicts(self) -> str:
-        """Analyze all documents to find conflicts and discrepancies.
-        
-        Returns:
-            Detailed conflict analysis
-        """
         if len(self.documents) < 2:
             return "Need at least 2 documents to analyze conflicts."
 
@@ -273,7 +292,7 @@ Brief description of the document's purpose
 
 ## 3. Timeline Conflicts
 - Inconsistent dates between documents
-- Impossible scheduling (task B before task A completes)
+- Impossible scheduling dependencies
 - Missing milestone dates
 
 ## 4. Commercial Conflicts
@@ -284,7 +303,6 @@ Brief description of the document's purpose
 ## 5. Responsibility Conflicts
 - Same task assigned to different parties
 - Unclear responsibility assignments
-- Missing required approvals
 
 **For each conflict found:**
 - Identify the specific documents involved
@@ -297,10 +315,10 @@ If no conflicts are found in a category, state "No conflicts identified."
 End with a **Summary** of the most critical conflicts requiring immediate attention."""
 
         try:
-            return self._provider.complete(
+            return self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=2000,
                 temperature=0.3,
@@ -309,19 +327,8 @@ End with a **Summary** of the most critical conflicts requiring immediate attent
             return self._handle_api_error(e)
 
     def compare_documents(self, doc1_idx: int, doc2_idx: int, comparison_type: str = "conflicts") -> str:
-        """Compare two specific documents.
-        
-        Args:
-            doc1_idx: Index of first document
-            doc2_idx: Index of second document
-            comparison_type: 'conflicts', 'similarities', or 'relationships'
-            
-        Returns:
-            Comparison analysis
-        """
         if doc1_idx >= len(self.documents) or doc2_idx >= len(self.documents):
             return "Document not found."
-        
         if doc1_idx == doc2_idx:
             return "Please select two different documents to compare."
 
@@ -342,7 +349,6 @@ For each conflict:
 2. Explain why it's a conflict
 3. Recommend which document should take precedence
 4. Suggest how to resolve"""
-
         elif comparison_type == "similarities":
             prompt = f"""Analyze these two documents and identify what they have in common:
 
@@ -358,8 +364,7 @@ Identify:
 3. Related dates and timelines
 4. Connected financial terms
 5. How the documents complement each other"""
-
-        else:  # relationships
+        else:
             prompt = f"""Analyze the relationship between these two documents:
 
 DOCUMENT 1: {doc1['filename']} ({doc1['document_type']})
@@ -376,10 +381,10 @@ Explain:
 5. How should they be used together?"""
 
         try:
-            return self._provider.complete(
+            return self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=1500,
                 temperature=0.3,
@@ -388,82 +393,26 @@ Explain:
             return self._handle_api_error(e)
 
     def extract_key_info(self, info_type: str) -> str:
-        """Extract specific types of information from all documents.
-        
-        Args:
-            info_type: 'dates', 'costs', 'parties', 'requirements', or 'risks'
-            
-        Returns:
-            Extracted information
-        """
         if not self.documents:
             return "No documents loaded."
 
         context = self._build_context()
 
         prompts = {
-            "dates": """Extract ALL dates, deadlines, and milestones from these documents:
-
-{context}
-
-Create a chronological timeline with:
-- Date/deadline
-- Description
-- Source document
-- Status (if mentioned)""",
-
-            "costs": """Extract ALL financial information from these documents:
-
-{context}
-
-List:
-- Contract values and amounts
-- Unit prices and rates
-- Payment terms and schedules
-- Allowances and contingencies
-- Change order values""",
-
-            "parties": """Extract ALL parties, companies, and individuals from these documents:
-
-{context}
-
-For each party, provide:
-- Name
-- Role/title
-- Contact info (if available)
-- Responsibilities
-- Which documents mention them""",
-
-            "requirements": """Extract ALL requirements and specifications from these documents:
-
-{context}
-
-Organize by:
-- Technical requirements
-- Quality standards
-- Compliance requirements
-- Performance criteria
-- Testing/inspection requirements""",
-
-            "risks": """Identify ALL risks and issues mentioned in these documents:
-
-{context}
-
-For each risk:
-- Description
-- Source document
-- Severity (High/Medium/Low)
-- Recommended mitigation
-- Owner (who is responsible)"""
+            "dates": "Extract ALL dates, deadlines, and milestones from these documents:\n\n{context}\n\nCreate a chronological timeline with date, description, source document, and status.",
+            "costs": "Extract ALL financial information from these documents:\n\n{context}\n\nList contract values, unit prices, payment terms, allowances, and change order values.",
+            "parties": "Extract ALL parties, companies, and individuals from these documents:\n\n{context}\n\nFor each: name, role, contact info, responsibilities, which documents mention them.",
+            "requirements": "Extract ALL requirements and specifications from these documents:\n\n{context}\n\nOrganize by technical, quality, compliance, performance, and testing requirements.",
+            "risks": "Identify ALL risks and issues in these documents:\n\n{context}\n\nFor each: description, source document, severity (High/Medium/Low), mitigation, owner.",
         }
 
         prompt = prompts.get(info_type, prompts["dates"]).format(context=context)
 
         try:
-            return self._provider.complete(
+            return self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=2000,
                 temperature=0.3,
