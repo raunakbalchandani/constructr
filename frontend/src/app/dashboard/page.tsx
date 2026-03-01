@@ -880,7 +880,7 @@ function ConflictsTab({ documents, currentProject }: { documents: Document[]; cu
 
     try {
       const data = await api.chat.conflicts(parseInt(currentProject.id))
-      setConflicts(data)
+      setConflicts(data.conflicts ?? [])
     } catch (err: any) {
       setError(err.message || 'Failed to analyze conflicts. Please try again.')
       setConflicts([])
