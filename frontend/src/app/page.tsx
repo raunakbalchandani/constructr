@@ -139,23 +139,25 @@ export default function LandingPage() {
             </span>
           </div>
 
-          <h1 className="font-black uppercase leading-none tracking-tight mb-8"
-            style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', lineHeight: 0.9, fontSize: 'clamp(4rem, 10vw, 9rem)' }}>
-            Your{' '}
-            <span
-              style={{
-                color: 'var(--accent)',
-                display: 'inline-block',
-                opacity: wordVisible ? 1 : 0,
-                transform: wordVisible ? 'translateY(0)' : 'translateY(-8px)',
-                transition: 'opacity 0.35s ease, transform 0.35s ease',
-                minWidth: '3ch',
-              }}
-            >
-              {HERO_WORDS[wordIdx]}
+          <h1 className="font-black uppercase tracking-tight mb-8"
+            style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)', lineHeight: 0.88, fontSize: 'clamp(4rem, 10vw, 9rem)' }}>
+            {/* "Your" on its own line so word-length change never affects layout */}
+            <span style={{ display: 'block' }}>Your</span>
+            <span style={{ display: 'block' }}>
+              <span
+                style={{
+                  color: 'var(--accent)',
+                  display: 'inline-block',
+                  opacity: wordVisible ? 1 : 0,
+                  transform: wordVisible ? 'translateY(0)' : 'translateY(-6px)',
+                  transition: 'opacity 0.32s ease, transform 0.32s ease',
+                }}
+              >
+                {HERO_WORDS[wordIdx]}
+              </span>
+              ,
             </span>
-            ,<br />
-            <span style={{ color: 'var(--text-primary)' }}>understood.</span>
+            <span style={{ display: 'block' }}>understood.</span>
           </h1>
 
           <div className="flex flex-col md:flex-row md:items-end gap-8 md:gap-16">
