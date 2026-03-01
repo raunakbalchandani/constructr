@@ -14,34 +14,20 @@ from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
 logger = logging.getLogger(__name__)
 
 # System prompt for construction expertise
-SYSTEM_PROMPT = """You are an expert construction project consultant and AI assistant with deep knowledge of:
+SYSTEM_PROMPT = """You are Foreperson — an AI assistant built for construction project managers with 20+ years of field experience baked in. You think like a senior PM or superintendent who has run jobs from groundbreaking to closeout: AIA contracts, CSI specs (all 50 divisions), subcontracts, RFI logs, shop drawings, pay apps, punch lists, site plans, structural drawings, MEP coordination, schedules, budgets — you know all of it cold.
 
-**Core Expertise:**
-- Construction contracts (AIA, ConsensusDocs, EJCDC)
-- Project specifications (CSI MasterFormat)
-- RFIs, submittals, and change orders
-- Building codes and standards (IBC, NEC, OSHA, etc.)
-- Project scheduling and management (CPM, Gantt charts)
-- Cost estimation and budgeting
-- Quality control and inspections
-- Safety regulations and best practices
-- Material specifications and standards
-- Construction methods and techniques
+How you respond:
+- Match the tone to the question. Simple question → short direct answer. Complex analysis → structured breakdown.
+- Never open with "Certainly!", "Great question!", "Of course!" or any filler. Just answer.
+- Use bullet points or headers only when they genuinely help (lists of items, step-by-step processes, comparisons). Not for every single response.
+- Numbers, dates, and dollar amounts should be specific. Vague ranges are useless on a job site.
+- When something is a risk, a conflict, or a red flag, say so clearly — don't soften it.
+- When referencing an uploaded document, cite it by name.
+- If you don't know something or the documents don't cover it, say so plainly.
+- For field questions, give answers a superintendent can act on immediately.
+- For contract/legal questions, flag when an attorney should be involved.
 
-**Your Role:**
-- Answer questions as a knowledgeable construction professional
-- Provide practical, actionable advice
-- Use construction industry terminology appropriately
-- When documents are provided, use them as context but don't limit yourself to only what's in them
-- For general construction questions, draw from your expertise even without document context
-- Be helpful, clear, and professional
-
-**Response Style:**
-- Format responses clearly with headers and bullet points when appropriate
-- Cite specific documents when referencing uploaded project documents
-- Provide examples and real-world context when helpful
-- Highlight critical items that need attention
-- Note any missing information or ambiguities when relevant"""
+You are talking to people who have no patience for fluff. Be the smartest person in the trailer."""
 
 
 def _is_quota_error(e: Exception) -> bool:
@@ -261,37 +247,16 @@ Brief description of the document's purpose
         """Answer a construction question, optionally grounded in uploaded documents."""
         if self.documents:
             context = self._build_context()
-            prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
+            prompt = f"""Question: {question}
 
-**Question**: {question}
-
-**Available Project Documents** (use these as context if relevant):
+Project documents:
 {context}
 
-**Instructions**:
-- Answer as a construction expert with deep knowledge of contracts, specifications, codes, scheduling, and project management
-- If the question relates to the uploaded documents, reference them specifically
-- If the question is general construction knowledge, provide expert guidance even without document context
-- Be practical, actionable, and use construction industry terminology
-- Format your response clearly with headers and bullet points when helpful"""
+Answer using the documents above where relevant. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
         else:
-            prompt = f"""You are an expert construction consultant. Answer this question using your construction expertise.
+            prompt = f"""Question: {question}
 
-**Question**: {question}
-
-**Instructions**:
-- Answer as a construction expert with deep knowledge of:
-  * Construction contracts (AIA, ConsensusDocs, EJCDC)
-  * Project specifications (CSI MasterFormat)
-  * RFIs, submittals, and change orders
-  * Building codes and standards (IBC, NEC, etc.)
-  * Project scheduling and management
-  * Cost estimation and budgeting
-  * Safety regulations (OSHA)
-  * Quality control and inspections
-- Be practical, actionable, and use construction industry terminology
-- Provide specific examples when helpful
-- Format your response clearly with headers and bullet points when appropriate"""
+Answer from your construction expertise. Be direct and specific."""
 
         try:
             return self._complete(
@@ -311,45 +276,22 @@ Brief description of the document's purpose
 
         context = self._build_context(max_chars_per_doc=2500)
 
-        prompt = f"""Perform a thorough conflict analysis of these construction documents:
+        prompt = f"""Review these construction documents and find every conflict, gap, and contradiction:
 
 {context}
 
-**Analyze for the following types of conflicts:**
+Look for:
+- Spec conflicts (same item specified differently in two places)
+- Scope gaps (work that needs to happen but no one owns it)
+- Scope overlaps (same work assigned to multiple parties)
+- Dimension or quantity discrepancies
+- Timeline inconsistencies
+- Payment or commercial conflicts
+- Responsibility conflicts
 
-## 1. Specification Conflicts
-- Different materials specified for same item
-- Conflicting dimensions or quantities
-- Incompatible products or systems
+For each issue: name the documents involved, quote the conflicting language, say why it's a problem, and suggest how to resolve it.
 
-## 2. Scope Conflicts
-- Overlapping responsibilities
-- Gaps in scope (work not assigned to anyone)
-- Contradictory scope descriptions
-
-## 3. Timeline Conflicts
-- Inconsistent dates between documents
-- Impossible scheduling dependencies
-- Missing milestone dates
-
-## 4. Commercial Conflicts
-- Different prices for same items
-- Inconsistent payment terms
-- Budget discrepancies
-
-## 5. Responsibility Conflicts
-- Same task assigned to different parties
-- Unclear responsibility assignments
-
-**For each conflict found:**
-- Identify the specific documents involved
-- Quote the conflicting text
-- Explain why it's a conflict
-- Suggest resolution approach
-
-If no conflicts are found in a category, state "No conflicts identified."
-
-End with a **Summary** of the most critical conflicts requiring immediate attention."""
+Rank conflicts by severity. Lead with the ones that will cause change orders or delays if not resolved."""
 
         try:
             return self._complete(
