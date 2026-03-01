@@ -104,10 +104,10 @@ export interface ChatMessage {
 export const chat = {
   history: (projectId: number) =>
     request<ChatMessage[]>(`/projects/${projectId}/chat`),
-  send: (projectId: number, message: string) =>
+  send: (projectId: number, message: string, model?: string) =>
     request<{ response: string }>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, message }),
+      body: JSON.stringify({ project_id: projectId, message, model }),
     }),
   conflicts: (projectId: number) =>
     request<{ conflicts: unknown[] }>(`/projects/${projectId}/conflicts`, { method: 'POST' }),

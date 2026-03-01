@@ -688,10 +688,11 @@ const PROMPTS_BY_CATEGORY = [
   { cat: 'PROJECT STATUS', items: ["Summarize all open RFIs by trade", "What submittals are still outstanding?", "List all schedule milestones and deadlines"] },
 ]
 
-function ChatTab({ files, currentProject, messages, isLoading, onSendMessage }: {
+function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel }: {
   files: UploadedFile[]; currentProject: Project | null
   messages: Message[]; isLoading: boolean
   onSendMessage: (msg: string) => Promise<void>
+  activeModel: string
 }) {
   const [input, setInput] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -709,7 +710,9 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage }: 
       {/* Header */}
       <div className="flex items-center justify-between mb-4 flex-shrink-0">
         <div>
-          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// AI ASSISTANT</p>
+          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>
+            // AI ASSISTANT &nbsp;·&nbsp; <span style={{ color: 'var(--accent)' }}>{activeModel}</span>
+          </p>
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Ask Foreperson</h1>
         </div>
         {files.length > 0 && (
@@ -983,15 +986,128 @@ function CompareTab({ files }: { files: UploadedFile[] }) {
   )
 }
 
+// ─── Model definitions ───────────────────────────────────────
+const OPENAI_MODELS = [
+  { id: 'gpt-4o',          name: 'GPT-4o',         badge: 'Most Capable', desc: 'Best reasoning, complex document analysis, highest accuracy.' },
+  { id: 'gpt-4o-mini',     name: 'GPT-4o Mini',    badge: 'Default',      desc: 'Fast and cost-effective. Best for most construction queries.' },
+  { id: 'gpt-4-turbo',     name: 'GPT-4 Turbo',    badge: null,           desc: 'Previous-generation GPT-4 with 128k context window.' },
+  { id: 'gpt-3.5-turbo',   name: 'GPT-3.5 Turbo',  badge: 'Fastest',      desc: 'Fastest and cheapest. Good for simple lookups and summaries.' },
+]
+
+const ANTHROPIC_MODELS = [
+  { id: 'claude-opus-4-6',          name: 'Claude Opus 4.6',    badge: 'Most Capable', desc: 'Anthropic\'s most powerful model. Best for complex reasoning across large document sets.' },
+  { id: 'claude-sonnet-4-6',        name: 'Claude Sonnet 4.6',  badge: 'Default',      desc: 'Balanced performance and speed. Excellent for contracts, specs, and RFIs.' },
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5',  badge: 'Fastest',      desc: 'Ultra-fast and lightweight. Great for quick lookups and field queries.' },
+]
+
 // ─── Settings Tab ───────────────────────────────────────────
-function SettingsTab() {
+function SettingsTab({ selectedModel, onModelChange }: {
+  selectedModel: string
+  onModelChange: (model: string) => void
+}) {
+  const ModelCard = ({ id, name, badge, desc, isSelected, onSelect }: {
+    id: string; name: string; badge: string | null; desc: string
+    isSelected: boolean; onSelect: () => void
+  }) => (
+    <button
+      onClick={onSelect}
+      className="w-full text-left p-4 transition-colors"
+      style={{
+        border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+        backgroundColor: isSelected ? 'rgba(245,200,0,0.04)' : 'transparent',
+      }}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Radio indicator */}
+          <div className="w-3.5 h-3.5 rounded-full border flex-shrink-0 flex items-center justify-center"
+            style={{ borderColor: isSelected ? 'var(--accent)' : 'var(--border)' }}>
+            {isSelected && <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent)' }} />}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold uppercase" style={{ letterSpacing: '0.06em', fontFamily: 'var(--font-mono)' }}>{name}</span>
+              {badge && (
+                <span className="text-xs px-1.5 py-0.5"
+                  style={{
+                    backgroundColor: badge === 'Default' ? 'var(--accent)' : 'var(--surface)',
+                    color: badge === 'Default' ? 'var(--accent-dark)' : 'var(--text-secondary)',
+                    border: badge === 'Default' ? 'none' : '1px solid var(--border)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.55rem',
+                    letterSpacing: '0.06em',
+                  }}>
+                  {badge}
+                </span>
+              )}
+            </div>
+            <p className="text-xs mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{desc}</p>
+          </div>
+        </div>
+      </div>
+    </button>
+  )
+
   return (
-    <div className="space-y-6 max-w-lg">
+    <div className="space-y-8 max-w-2xl">
       <div>
         <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// ACCOUNT SETTINGS</p>
         <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Settings</h1>
       </div>
 
+      {/* ── AI Model Selection ─────────────────────────────── */}
+      <div style={{ border: '1px solid var(--border)' }}>
+        <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+          <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>AI MODEL</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            Select the model used for chat and conflict analysis. If the selected model&apos;s quota is exhausted, the system will not auto-fallback — switch to another model.
+          </p>
+        </div>
+
+        {/* OpenAI section */}
+        <div>
+          <div className="px-6 py-3 flex items-center gap-3"
+            style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+            <div className="w-4 h-4 flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: '#10a37f' }}>
+              <span style={{ color: '#fff', fontSize: '0.45rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>AI</span>
+            </div>
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>OpenAI</span>
+            <span className="label-mono ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>GPT series</span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {OPENAI_MODELS.map(m => (
+              <ModelCard key={m.id} {...m} isSelected={selectedModel === m.id} onSelect={() => onModelChange(m.id)} />
+            ))}
+          </div>
+        </div>
+
+        {/* Anthropic section */}
+        <div style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="px-6 py-3 flex items-center gap-3"
+            style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+            <div className="w-4 h-4 flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: '#cc785c' }}>
+              <span style={{ color: '#fff', fontSize: '0.45rem', fontWeight: 700, fontFamily: 'var(--font-mono)' }}>AN</span>
+            </div>
+            <span className="text-xs font-bold uppercase tracking-wider" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.1em' }}>Anthropic</span>
+            <span className="label-mono ml-auto" style={{ fontFamily: 'var(--font-mono)' }}>Claude series</span>
+          </div>
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {ANTHROPIC_MODELS.map(m => (
+              <ModelCard key={m.id} {...m} isSelected={selectedModel === m.id} onSelect={() => onModelChange(m.id)} />
+            ))}
+          </div>
+        </div>
+
+        <div className="px-6 py-3" style={{ borderTop: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            ACTIVE: <span style={{ color: 'var(--accent)' }}>{selectedModel}</span>
+          </p>
+        </div>
+      </div>
+
+      {/* ── Profile ─────────────────────────────────────────── */}
       <div style={{ border: '1px solid var(--border)' }}>
         <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
           <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>PROFILE</p>
@@ -1009,6 +1125,7 @@ function SettingsTab() {
         </div>
       </div>
 
+      {/* ── Danger Zone ─────────────────────────────────────── */}
       <div style={{ border: '1px solid rgba(248,113,113,0.25)' }}>
         <div className="px-6 py-4" style={{ borderBottom: '1px solid rgba(248,113,113,0.2)', backgroundColor: 'rgba(248,113,113,0.04)' }}>
           <p className="label-mono" style={{ fontFamily: 'var(--font-mono)', color: '#f87171' }}>DANGER ZONE</p>
@@ -1041,6 +1158,9 @@ export default function DashboardPage() {
   const [chatMsgs, setChatMsgs] = useState<Message[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [chatLoaded, setChatLoaded] = useState<Record<string, boolean>>({})
+  const [selectedModel, setSelectedModel] = useState<string>(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('fp-model') ?? 'gpt-4o-mini') : 'gpt-4o-mini'
+  )
 
   useEffect(() => { loadProjects() }, [])
   useEffect(() => {
@@ -1145,7 +1265,7 @@ export default function DashboardPage() {
     setChatMsgs((p) => [...p, userMsg])
     setChatLoading(true)
     try {
-      const data = await api.chat.send(parseInt(current.id), msg)
+      const data = await api.chat.send(parseInt(current.id), msg, selectedModel)
       setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.response ?? 'No response.', timestamp: new Date() }])
       setChatLoaded((p) => ({ ...p, [current.id]: true }))
     } catch (err) {
@@ -1158,10 +1278,10 @@ export default function DashboardPage() {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
-      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} />
+      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} />
-      case 'settings':  return <SettingsTab />
+      case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
       default:          return <OverviewTab project={current} files={files} setTab={changeTab} />
     }
   }

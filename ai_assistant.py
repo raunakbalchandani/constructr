@@ -55,32 +55,69 @@ def _is_quota_error(e: Exception) -> bool:
     return any(kw in msg for kw in keywords)
 
 
-def _build_providers() -> List[AIProvider]:
-    """Build the ordered list of available AI providers from environment variables."""
+OPENAI_MODELS = {
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-3.5-turbo",
+}
+
+ANTHROPIC_MODELS = {
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001",
+}
+
+
+def _build_providers(model: Optional[str] = None) -> List[AIProvider]:
+    """Build the ordered list of AI providers.
+
+    If *model* is specified, only the matching provider is returned (pinned).
+    Otherwise the full fallback chain is returned: OpenAI → Anthropic.
+    """
+    openai_key = os.environ.get("OPENAI_API_KEY")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     providers: List[AIProvider] = []
 
-    openai_key = os.environ.get("OPENAI_API_KEY")
-    if openai_key:
-        try:
-            providers.append(OpenAIProvider(api_key=openai_key, model=DEFAULT_AI_MODEL))
-            logger.info("AI: OpenAI provider registered (model=%s)", DEFAULT_AI_MODEL)
-        except Exception as e:
-            logger.warning("AI: Failed to initialise OpenAI provider: %s", e)
+    if model:
+        # Pinned model — use the appropriate provider exclusively
+        if model in OPENAI_MODELS:
+            if not openai_key:
+                raise RuntimeError("OPENAI_API_KEY is not set.")
+            providers.append(OpenAIProvider(api_key=openai_key, model=model))
+            logger.info("AI: pinned to OpenAI %s", model)
+        elif model in ANTHROPIC_MODELS:
+            if not anthropic_key:
+                raise RuntimeError("ANTHROPIC_API_KEY is not set.")
+            providers.append(AnthropicProvider(api_key=anthropic_key, model=model))
+            logger.info("AI: pinned to Anthropic %s", model)
+        else:
+            logger.warning("AI: unknown model '%s', falling back to default chain", model)
+            # Fall through to build the default chain
+            model = None
 
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        try:
-            providers.append(AnthropicProvider(api_key=anthropic_key, model=DEFAULT_ANTHROPIC_MODEL))
-            logger.info("AI: Anthropic provider registered (model=%s)", DEFAULT_ANTHROPIC_MODEL)
-        except Exception as e:
-            logger.warning("AI: Failed to initialise Anthropic provider: %s", e)
+    if not model:
+        # Default fallback chain: OpenAI first, then Anthropic
+        if openai_key:
+            try:
+                providers.append(OpenAIProvider(api_key=openai_key, model=DEFAULT_AI_MODEL))
+                logger.info("AI: OpenAI provider registered (model=%s)", DEFAULT_AI_MODEL)
+            except Exception as e:
+                logger.warning("AI: Failed to initialise OpenAI provider: %s", e)
+
+        if anthropic_key:
+            try:
+                providers.append(AnthropicProvider(api_key=anthropic_key, model=DEFAULT_ANTHROPIC_MODEL))
+                logger.info("AI: Anthropic provider registered (model=%s)", DEFAULT_ANTHROPIC_MODEL)
+            except Exception as e:
+                logger.warning("AI: Failed to initialise Anthropic provider: %s", e)
 
     return providers
 
 
 class ConstructionAI:
-    def __init__(self) -> None:
-        self._providers = _build_providers()
+    def __init__(self, model: Optional[str] = None) -> None:
+        self._providers = _build_providers(model)
         if not self._providers:
             raise RuntimeError(
                 "No AI providers configured. Set OPENAI_API_KEY and/or ANTHROPIC_API_KEY."

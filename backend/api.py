@@ -127,6 +127,7 @@ class DocumentResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     project_id: Optional[int] = None
+    model: Optional[str] = None  # e.g. "gpt-4o-mini" or "claude-sonnet-4-6"
 
 
 class ChatResponse(BaseModel):
@@ -546,7 +547,7 @@ async def chat(
 
     # Create AI assistant and get response
     try:
-        assistant = ConstructionAI()
+        assistant = ConstructionAI(model=chat_request.model)
 
         # Load documents if available
         if doc_list:
