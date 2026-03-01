@@ -17,6 +17,13 @@ from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
 
 logger = logging.getLogger(__name__)
 
+try:
+    from vision_counter import count_objects_in_image, format_count_for_ai
+    _VISION_COUNTER_AVAILABLE = True
+except ImportError:
+    _VISION_COUNTER_AVAILABLE = False
+    logger.warning("AI: vision_counter not available — YOLO/CV counting disabled")
+
 # System prompt for construction expertise
 SYSTEM_PROMPT = """You are Foreperson — an AI assistant built for construction project managers with 20+ years of field experience baked in. You think like a senior PM or superintendent who has run jobs from groundbreaking to closeout: AIA contracts, CSI specs (all 50 divisions), subcontracts, RFI logs, shop drawings, pay apps, punch lists, site plans, structural drawings, MEP coordination, schedules, budgets — you know all of it cold.
 
@@ -478,6 +485,34 @@ Content:
                 )
         return result
 
+    def _run_vision_counter(self, images_by_doc: list, question: str) -> str:
+        """Run YOLO/CV counting on images if the question involves counting.
+
+        Returns a string to prepend to the AI prompt, or "" if not applicable.
+        """
+        if not _VISION_COUNTER_AVAILABLE or not images_by_doc:
+            return ""
+
+        count_keywords = [
+            "how many", "count", "number of", "total", "how much",
+            "quantity", "tally", "enumerate",
+        ]
+        if not any(kw in question.lower() for kw in count_keywords):
+            return ""
+
+        # Run counter on the first available image
+        for _doc_name, images in images_by_doc:
+            if images:
+                try:
+                    result = count_objects_in_image(images[0])
+                    note = format_count_for_ai(result)
+                    if note:
+                        logger.info("AI: vision counter result prepended to prompt")
+                        return note
+                except Exception as e:
+                    logger.warning("AI: vision counter failed: %s", e)
+        return ""
+
     def extract_facts(self, question: str, answer: str) -> list:
         """Extract key facts from a Q&A exchange for cross-thread memory.
 
@@ -652,13 +687,15 @@ Brief description of the document's purpose
                         "Search all documents for mentions of these terms and include relevant findings."
                     )
 
-                prompt = f"""Question: {question}
+                cv_note = self._run_vision_counter(images_by_doc, question)
+
+                prompt = f"""{cv_note}Question: {question}
 {focus}{entity_note}
 
 Project documents:
 {context}
 
-Answer using the documents where relevant. Where drawings or images are provided, examine them carefully — look for callouts, annotations, colored markings, dimensions, sheet references, symbols, and spatial relationships. If the question isn't covered by the documents, answer from your construction expertise. Be direct."""
+Answer using the documents where relevant. Where drawings or images are provided, examine them carefully — look for callouts, annotations, colored markings, dimensions, sheet references, symbols, and spatial relationships. If a COMPUTER VISION RESULT is shown above, cite it as the authoritative count — do not contradict it or guess your own count. If the question isn't covered by the documents, answer from your expertise. Be direct."""
 
                 if images_by_doc:
                     try:
