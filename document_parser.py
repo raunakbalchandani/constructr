@@ -211,26 +211,26 @@ class ConstructionDocumentParser:
                 text_6 = pytesseract.image_to_string(processed_image, config=config_6)
                 if text_6.strip():
                     ocr_results.append(("Uniform Block", text_6.strip()))
-            except:
-                pass
-            
+            except (OSError, ValueError, Exception) as e:
+                logger.debug("OCR PSM 6 failed: %s", e)
+
             # PSM 11: Sparse text (for annotations, callouts, dimensions on drawings)
             try:
                 config_11 = r'--oem 3 --psm 11'
                 text_11 = pytesseract.image_to_string(processed_image, config=config_11)
                 if text_11.strip() and len(text_11.strip()) > 20:  # Only if substantial
                     ocr_results.append(("Sparse Text", text_11.strip()))
-            except:
-                pass
-            
+            except (OSError, ValueError, Exception) as e:
+                logger.debug("OCR PSM 11 failed: %s", e)
+
             # PSM 3: Fully automatic (fallback)
             try:
                 config_3 = r'--oem 3 --psm 3'
                 text_3 = pytesseract.image_to_string(processed_image, config=config_3)
                 if text_3.strip() and len(text_3.strip()) > 50:
                     ocr_results.append(("Auto", text_3.strip()))
-            except:
-                pass
+            except (OSError, ValueError, Exception) as e:
+                logger.debug("OCR PSM 3 failed: %s", e)
             
             # Combine results intelligently
             combined_text = ""
