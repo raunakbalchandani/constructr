@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
+import * as api from '@/lib/api'
 import { 
   Building2, 
   FileText, 
@@ -698,20 +699,7 @@ function ConflictsTab({ documents, currentProject }: { documents: Document[]; cu
     setError(null)
 
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/projects/${currentProject.id}/conflicts`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-
-      if (!res.ok) {
-        const errorData = await res.json()
-        throw new Error(errorData.detail || 'Failed to analyze conflicts')
-      }
-
-      const data = await res.json()
+      const data = await api.chat.conflicts(parseInt(currentProject.id))
       setConflicts(data)
     } catch (err: any) {
       setError(err.message || 'Failed to analyze conflicts. Please try again.')
@@ -903,31 +891,7 @@ function SettingsTab() {
 
   const handleSaveApiKey = async () => {
     if (!apiKey.trim()) return
-    setIsSaving(true)
-    setSaveMessage('')
-    
-    try {
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/auth/api-key', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ openai_api_key: apiKey })
-      })
-      
-      if (res.ok) {
-        setSaveMessage('✓ API key saved successfully!')
-        setApiKey('')
-      } else {
-        setSaveMessage('Failed to save API key')
-      }
-    } catch (error) {
-      setSaveMessage('Error saving API key')
-    } finally {
-      setIsSaving(false)
-    }
+    setSaveMessage('This feature is no longer available.')
   }
 
   return (
@@ -1048,26 +1012,20 @@ export default function DashboardPage() {
 
   const loadProjects = async () => {
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/projects', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const projectsList = data.map((p: any) => ({
-          id: p.id.toString(),
-          name: p.name,
-          documents: p.document_count || 0
-        }))
-        setProjects(projectsList)
-        
-        // Set current project to first one, or create default if none exist
-        if (projectsList.length > 0) {
-          setCurrentProject(projectsList[0])
-        } else {
-          // Create a default project if none exist
-          handleAddProject('My Project')
-        }
+      const data = await api.projects.list()
+      const projectsList = data.map((p: any) => ({
+        id: p.id.toString(),
+        name: p.name,
+        documents: p.document_count || 0
+      }))
+      setProjects(projectsList)
+
+      // Set current project to first one, or create default if none exist
+      if (projectsList.length > 0) {
+        setCurrentProject(projectsList[0])
+      } else {
+        // Create a default project if none exist
+        handleAddProject('My Project')
       }
     } catch (error) {
       console.error('Failed to load projects:', error)
@@ -1076,22 +1034,16 @@ export default function DashboardPage() {
 
   const loadDocuments = async () => {
     if (!currentProject) return
-    
+
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/projects/${currentProject.id}/documents`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setDocuments(data.map((d: any) => ({
-          id: d.id.toString(),
-          name: d.original_filename,
-          type: d.document_type || 'unknown',
-          uploadedAt: d.created_at?.split('T')[0] || 'Unknown',
-          size: formatFileSize(d.file_size || 0)
-        })))
-      }
+      const data = await api.documents.list(parseInt(currentProject.id))
+      setDocuments(data.map((d: any) => ({
+        id: d.id.toString(),
+        name: d.original_filename,
+        type: d.document_type || 'unknown',
+        uploadedAt: d.created_at?.split('T')[0] || 'Unknown',
+        size: formatFileSize(d.file_size || 0)
+      })))
     } catch (error) {
       console.error('Failed to load documents:', error)
     }
@@ -1107,41 +1059,31 @@ export default function DashboardPage() {
     }
     
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/projects/${currentProject.id}/chat`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      
-      if (res.ok) {
-        const data = await res.json()
-        if (data.messages && data.messages.length > 0) {
-          // Convert database messages to UI format
-          const formattedMessages = data.messages.map((msg: any) => ({
-            id: msg.id.toString(),
-            role: msg.role,
-            content: msg.content,
-            timestamp: new Date(msg.created_at)
-          }))
-          setChatMessages(formattedMessages)
-          setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
-        } else {
-          // No messages yet, show welcome message only if chat is empty
-          setChatMessages(prev => {
-            if (prev.length === 0 || (prev.length === 1 && prev[0].id === '1' && prev[0].role === 'assistant')) {
-              return [{
-                id: '1',
-                role: 'assistant',
-                content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
-                timestamp: new Date()
-              }]
-            }
-            return prev // Keep existing messages
-          })
-          setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
-        }
+      const data = await api.chat.history(parseInt(currentProject.id))
+      if (data && (data as any).messages && (data as any).messages.length > 0) {
+        // Convert database messages to UI format
+        const formattedMessages = (data as any).messages.map((msg: any) => ({
+          id: msg.id.toString(),
+          role: msg.role,
+          content: msg.content,
+          timestamp: new Date(msg.created_at)
+        }))
+        setChatMessages(formattedMessages)
+        setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
       } else {
-        console.error('Failed to load chat history:', res.status)
-        // Don't reset messages on error - keep existing ones
+        // No messages yet, show welcome message only if chat is empty
+        setChatMessages(prev => {
+          if (prev.length === 0 || (prev.length === 1 && prev[0].id === '1' && prev[0].role === 'assistant')) {
+            return [{
+              id: '1',
+              role: 'assistant',
+              content: 'Hello! I\'m your construction document assistant. Upload some documents and ask me anything about them. I can help you find information, detect conflicts, and summarize content.',
+              timestamp: new Date()
+            }]
+          }
+          return prev // Keep existing messages
+        })
+        setChatHistoryLoaded(prev => ({ ...prev, [projectKey]: true }))
       }
     } catch (error) {
       console.error('Failed to load chat history:', error)
@@ -1176,25 +1118,8 @@ export default function DashboardPage() {
     setIsChatLoading(true)
 
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ 
-          message: message,
-          project_id: parseInt(currentProject.id)
-        })
-      })
+      const data = await api.chat.send(parseInt(currentProject.id), message)
 
-      if (!res.ok) {
-        throw new Error('Failed to send message')
-      }
-
-      const data = await res.json()
-      
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -1223,27 +1148,15 @@ export default function DashboardPage() {
 
   const handleAddProject = async (name: string, description?: string) => {
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ name, description })
-      })
-      
-      if (res.ok) {
-        const newProject = await res.json()
-        const project = {
-          id: newProject.id.toString(),
-          name: newProject.name,
-          documents: 0
-        }
-        setProjects(prev => [...prev, project])
-        setCurrentProject(project)
-        setShowAddProjectModal(false)
+      const newProject = await api.projects.create(name, description)
+      const project = {
+        id: newProject.id.toString(),
+        name: newProject.name,
+        documents: 0
       }
+      setProjects(prev => [...prev, project])
+      setCurrentProject(project)
+      setShowAddProjectModal(false)
     } catch (error) {
       console.error('Failed to create project:', error)
     }
@@ -1263,81 +1176,60 @@ export default function DashboardPage() {
     if (!projectToDelete) return
 
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/projects/${projectToDelete.id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      await api.projects.delete(parseInt(projectToDelete.id))
 
-      if (res.ok) {
-        // Remove from projects list
-        setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
-        
-        // If deleted project was current, switch to another project
-        if (currentProject?.id === projectToDelete.id) {
-          const remainingProjects = projects.filter(p => p.id !== projectToDelete.id)
-          if (remainingProjects.length > 0) {
-            setCurrentProject(remainingProjects[0])
-          } else {
-            setCurrentProject(null)
-          }
+      // Remove from projects list
+      setProjects(prev => prev.filter(p => p.id !== projectToDelete.id))
+
+      // If deleted project was current, switch to another project
+      if (currentProject?.id === projectToDelete.id) {
+        const remainingProjects = projects.filter(p => p.id !== projectToDelete.id)
+        if (remainingProjects.length > 0) {
+          setCurrentProject(remainingProjects[0])
+        } else {
+          setCurrentProject(null)
         }
-
-        // Clear chat history if it was the current project
-        if (currentProject?.id === projectToDelete.id) {
-          setChatMessages([])
-          setChatHistoryLoaded(prev => {
-            const updated = { ...prev }
-            delete updated[projectToDelete.id]
-            return updated
-          })
-        }
-
-        setShowDeleteProjectModal(false)
-        setProjectToDelete(null)
-      } else {
-        const error = await res.json()
-        alert(`Failed to delete project: ${error.detail || 'Unknown error'}`)
       }
-    } catch (error) {
+
+      // Clear chat history if it was the current project
+      if (currentProject?.id === projectToDelete.id) {
+        setChatMessages([])
+        setChatHistoryLoaded(prev => {
+          const updated = { ...prev }
+          delete updated[projectToDelete.id]
+          return updated
+        })
+      }
+
+      setShowDeleteProjectModal(false)
+      setProjectToDelete(null)
+    } catch (error: any) {
       console.error('Failed to delete project:', error)
-      alert('Failed to delete project. Please try again.')
+      alert(`Failed to delete project: ${error.message || 'Please try again.'}`)
     }
   }
 
   const handleUpload = async (files: FileList) => {
     if (!currentProject) return
-    
-    const token = localStorage.getItem('token')
+
     setIsUploading(true)
 
     for (const file of Array.from(files)) {
-      const formData = new FormData()
-      formData.append('file', file)
-      
       try {
-        const res = await fetch(`/api/projects/${currentProject.id}/documents`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}` },
-          body: formData
-        })
-        
-        if (res.ok) {
-          const doc = await res.json()
-          setDocuments(prev => [{
-            id: doc.id.toString(),
-            name: doc.original_filename,
-            type: doc.document_type || 'unknown',
-            uploadedAt: new Date().toISOString().split('T')[0],
-            size: formatFileSize(doc.file_size || 0)
-          }, ...prev])
-          // Update project document count
-          setProjects(prev => prev.map(p => 
-            p.id === currentProject.id 
-              ? { ...p, documents: p.documents + 1 }
-              : p
-          ))
-        }
+        const doc = await api.documents.upload(parseInt(currentProject.id), file)
+        setDocuments(prev => [{
+          id: doc.id.toString(),
+          name: doc.original_filename,
+          type: doc.document_type || 'unknown',
+          uploadedAt: new Date().toISOString().split('T')[0],
+          size: formatFileSize(doc.file_size || 0)
+        }, ...prev])
+        // Update project document count
+        setProjects(prev => prev.map(p =>
+          p.id === currentProject.id
+            ? { ...p, documents: p.documents + 1 }
+            : p
+        ))
       } catch (error) {
         console.error('Upload failed:', error)
       }
@@ -1347,23 +1239,16 @@ export default function DashboardPage() {
 
   const handleDelete = async (id: string) => {
     if (!currentProject) return
-    
+
     try {
-      const token = localStorage.getItem('token')
-      const res = await fetch(`/api/projects/${currentProject.id}/documents/${id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      
-      if (res.ok) {
-        setDocuments(prev => prev.filter(d => d.id !== id))
-        // Update project document count
-        setProjects(prev => prev.map(p => 
-          p.id === currentProject.id 
-            ? { ...p, documents: Math.max(0, p.documents - 1) }
-            : p
-        ))
-      }
+      await api.documents.delete(parseInt(currentProject.id), parseInt(id))
+      setDocuments(prev => prev.filter(d => d.id !== id))
+      // Update project document count
+      setProjects(prev => prev.map(p =>
+        p.id === currentProject.id
+          ? { ...p, documents: Math.max(0, p.documents - 1) }
+          : p
+      ))
     } catch (error) {
       console.error('Failed to delete document:', error)
     }
