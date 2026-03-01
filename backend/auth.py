@@ -13,7 +13,9 @@ import os
 from .database import get_db, User
 
 # Configuration
-SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-change-in-production-foreperson-ai-2024")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("SECRET_KEY environment variable is required. Set it in your .env file.")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_DAYS = 7
 
