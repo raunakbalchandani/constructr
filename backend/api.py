@@ -698,6 +698,65 @@ async def get_chat_history(
     }
 
 
+@app.get("/projects/{project_id}/memory")
+async def get_project_memory(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all remembered facts for a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    memories = db.query(ProjectMemory).filter(
+        ProjectMemory.project_id == project_id
+    ).order_by(ProjectMemory.updated_at.desc()).all()
+
+    return {
+        "project_id": project_id,
+        "facts": [
+            {
+                "key": m.fact_key,
+                "value": m.fact_value,
+                "confidence": m.confidence,
+                "updated_at": m.updated_at,
+            }
+            for m in memories
+        ]
+    }
+
+
+@app.delete("/projects/{project_id}/memory/{fact_key}")
+async def delete_memory_fact(
+    project_id: int,
+    fact_key: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a specific remembered fact."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    fact = db.query(ProjectMemory).filter(
+        ProjectMemory.project_id == project_id,
+        ProjectMemory.fact_key == fact_key,
+    ).first()
+    if not fact:
+        raise HTTPException(status_code=404, detail="Fact not found")
+
+    db.delete(fact)
+    db.commit()
+    return {"message": f"Deleted fact: {fact_key}"}
+
+
 @app.post("/projects/{project_id}/conflicts", response_model=List[ConflictResponse])
 @limiter.limit(CONFLICTS_RATE_LIMIT)
 async def analyze_conflicts(
