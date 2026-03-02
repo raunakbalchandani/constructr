@@ -1486,9 +1486,7 @@ function SettingsTab({ selectedModel, onModelChange }: {
 // ─── Main Dashboard ─────────────────────────────────────────
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [tab, setTab] = useState(() =>
-    typeof window !== 'undefined' ? (localStorage.getItem('fp-tab') ?? 'overview') : 'overview'
-  )
+  const [tab, setTab] = useState('overview')
   const [projects, setProjects] = useState<Project[]>([])
   const [current, setCurrent] = useState<Project | null>(null)
   const [files, setFiles] = useState<UploadedFile[]>([])
@@ -1499,11 +1497,15 @@ export default function DashboardPage() {
   const [chatMsgs, setChatMsgs] = useState<Message[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [chatLoaded, setChatLoaded] = useState<Record<string, boolean>>({})
-  const [selectedModel, setSelectedModel] = useState<string>(() =>
-    typeof window !== 'undefined' ? (localStorage.getItem('fp-model') ?? 'gpt-4o-mini') : 'gpt-4o-mini'
-  )
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
 
   useEffect(() => { loadProjects() }, [])
+  useEffect(() => {
+    const savedTab = localStorage.getItem('fp-tab')
+    const savedModel = localStorage.getItem('fp-model')
+    if (savedTab) setTab(savedTab)
+    if (savedModel) setSelectedModel(savedModel)
+  }, [])
   useEffect(() => {
     if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })) }
     else { setFiles([]); setChatMsgs([]) }
