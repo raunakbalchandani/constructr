@@ -1,7 +1,7 @@
 """
 Foreperson.ai – Construction Document Parser
 
-Supported formats: PDF, DOCX, XLSX/XLS, CSV, TXT, PNG, JPG, JPEG, GIF, TIFF, WEBP, BMP
+Supported formats: PDF, DOCX, XLSX/XLS, CSV, TXT, DWG, DXF, PNG, JPG, JPEG, GIF, TIFF, WEBP, BMP
 Image extraction priority: Vision API (GPT-4o / Claude) → Tesseract OCR → placeholder
 """
 
@@ -67,6 +67,13 @@ try:
     HAS_PANDAS = True
 except ImportError:
     HAS_PANDAS = False
+
+try:
+    import ezdxf
+    from ezdxf import recover as ezdxf_recover
+    HAS_EZDXF = True
+except ImportError:
+    HAS_EZDXF = False
 
 # ── Document type registry ────────────────────────────────────
 # Keys must match the frontend CATS registry (lowercase snake_case)
@@ -478,6 +485,172 @@ def _extract_csv(file_path: str) -> str:
         return f'Error reading CSV: {e}'
 
 
+# ── CAD (DWG / DXF) extraction ────────────────────────────────
+
+def _collect_entity_text(entity, out: list):
+    """Pull text content out of a single ezdxf entity."""
+    try:
+        t = entity.dxftype()
+        if t == 'TEXT':
+            val = entity.dxf.text.strip()
+            if val:
+                out.append(val)
+        elif t == 'MTEXT':
+            val = entity.plain_mtext().strip()
+            if val:
+                out.append(val)
+        elif t in ('ATTRIB', 'ATTDEF'):
+            val = (getattr(entity.dxf, 'text', None) or getattr(entity.dxf, 'default', None) or '').strip()
+            if val:
+                out.append(val)
+        elif t == 'DIMENSION':
+            val = getattr(entity.dxf, 'text', '').strip()
+            if val:
+                out.append(val)
+    except Exception:
+        pass
+
+
+def _text_from_cad_doc(doc) -> str:
+    """Extract all text annotations + layer names from an ezdxf document object."""
+    texts: list = []
+
+    # Modelspace (main drawing area)
+    for entity in doc.modelspace():
+        _collect_entity_text(entity, texts)
+
+    # All named blocks (title block, details, legends, etc.)
+    for block in doc.blocks:
+        if block.name.startswith('*'):
+            continue  # skip *Model_Space, *Paper_Space system blocks
+        for entity in block:
+            _collect_entity_text(entity, texts)
+
+    # Layer names describe systems / trades
+    layers = [
+        layer.dxf.name for layer in doc.layers
+        if layer.dxf.name not in ('0', 'Defpoints') and not layer.dxf.name.startswith('$')
+    ]
+
+    parts = []
+    if layers:
+        parts.append(f"Drawing Layers ({len(layers)}):\n" + ', '.join(layers[:100]))
+
+    if texts:
+        seen: set = set()
+        unique = []
+        for t in texts:
+            t = ' '.join(t.split())
+            if t and t not in seen and len(t) > 1:
+                seen.add(t)
+                unique.append(t)
+        parts.append(f"\nText Annotations ({len(unique)}):\n" + '\n'.join(unique[:1000]))
+
+    return '\n'.join(parts)
+
+
+def _render_cad_to_vision(doc) -> str:
+    """Render modelspace to PNG via ezdxf matplotlib backend, then run vision API."""
+    try:
+        import tempfile
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from ezdxf.addons.drawing import RenderContext, Frontend
+        from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+
+        fig = plt.figure(figsize=(20, 15))
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_axis_off()
+        ctx = RenderContext(doc)
+        out = MatplotlibBackend(ax)
+        Frontend(ctx, out).draw_layout(doc.modelspace(), finalize=True)
+
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            png_path = tmp.name
+        fig.savefig(png_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close(fig)
+
+        return extract_text_from_image(png_path)
+    except Exception as e:
+        logger.warning('CAD matplotlib render failed: %s', e)
+        return ''
+
+
+def _cad_via_libreoffice(file_path: str) -> str:
+    """Convert DWG/DXF → PNG via LibreOffice headless, then run vision API."""
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = subprocess.run(
+            ['libreoffice', '--headless', '--convert-to', 'png', '--outdir', tmpdir, file_path],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice exit {result.returncode}: {result.stderr[:200]}")
+
+        stem = Path(file_path).stem
+        png = Path(tmpdir) / f"{stem}.png"
+        if not png.exists():
+            pngs = list(Path(tmpdir).glob('*.png'))
+            if not pngs:
+                raise RuntimeError('LibreOffice produced no PNG output')
+            png = pngs[0]
+
+        return extract_text_from_image(str(png))
+
+
+def _extract_cad(file_path: str) -> str:
+    """
+    Extract content from a DWG or DXF file.
+
+    Strategy (in order):
+      1. ezdxf recover.readfile  → text annotations + layer names
+         + ezdxf matplotlib render → vision API  (visual understanding)
+      2. LibreOffice headless convert → PNG → vision API  (DWG files ezdxf can't read)
+    """
+    fp = Path(file_path)
+    result_parts = [f"CAD Drawing: {fp.name}"]
+
+    # ── ezdxf path ────────────────────────────────────────────
+    if HAS_EZDXF:
+        doc = None
+        try:
+            doc, _ = ezdxf_recover.readfile(file_path)
+        except Exception as e1:
+            logger.warning('ezdxf recover failed (%s): %s', fp.name, e1)
+            try:
+                doc = ezdxf.readfile(file_path)
+            except Exception as e2:
+                logger.warning('ezdxf direct read failed (%s): %s', fp.name, e2)
+
+        if doc is not None:
+            text_content = _text_from_cad_doc(doc)
+            if text_content:
+                result_parts.append(text_content)
+
+            vision_text = _render_cad_to_vision(doc)
+            if vision_text:
+                result_parts.append(f"\nVisual Analysis:\n{vision_text}")
+
+            if len(result_parts) > 1:
+                return '\n'.join(result_parts)
+
+    # ── LibreOffice fallback ───────────────────────────────────
+    try:
+        logger.info('Trying LibreOffice fallback for %s', fp.name)
+        vision_text = _cad_via_libreoffice(file_path)
+        if vision_text:
+            result_parts.append(f"\nVisual Analysis (LibreOffice):\n{vision_text}")
+            return '\n'.join(result_parts)
+    except Exception as e:
+        logger.warning('LibreOffice fallback failed (%s): %s', fp.name, e)
+
+    return '\n'.join(result_parts) if len(result_parts) > 1 \
+        else f"[CAD file: {fp.name} — extraction unavailable; try exporting as DXF or PDF]"
+
+
 # ── Main parser class ─────────────────────────────────────────
 
 class ConstructionDocumentParser:
@@ -488,6 +661,7 @@ class ConstructionDocumentParser:
         '.xlsx', '.xls',
         '.csv',
         '.txt',
+        '.dwg', '.dxf',
         *IMAGE_EXTENSIONS,
     }
 
@@ -515,6 +689,8 @@ class ConstructionDocumentParser:
                 return {'error': f'Could not read text file: {e}'}
         elif ext in IMAGE_EXTENSIONS:
             text = extract_text_from_image(str(fp))
+        elif ext in ('.dwg', '.dxf'):
+            text = _extract_cad(str(fp))
         else:
             return {'error': f'Unsupported file type: {ext}'}
 
