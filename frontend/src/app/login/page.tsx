@@ -1,74 +1,193 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { auth } from '@/lib/api'
+
+const PANELS = [
+  { label: 'RFI', value: '23 open' },
+  { label: 'CONFLICTS', value: '4 flagged' },
+  { label: 'DOCS', value: '147 parsed' },
+]
 
 export default function LoginPage() {
+  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
     setError('')
-    
+    setLoading(true)
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
-      })
-      
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.detail || 'Login failed')
-      }
-      
-      const data = await res.json()
-      localStorage.setItem('token', data.access_token)
-      window.location.href = '/dashboard'
-    } catch (err: any) {
-      setError(err.message || 'Login failed. Please try again.')
+      const { access_token } = await auth.login(email, password)
+      localStorage.setItem('token', access_token)
+      router.push('/dashboard')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid email or password.')
     } finally {
-      setIsLoading(false)
+      setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left side - Form */}
-      <div className="flex-1 flex flex-col justify-center px-4 sm:px-6 lg:px-8 xl:px-24">
-        <div className="w-full max-w-md mx-auto">
-          {/* Back link */}
-          <Link href="/" className="inline-flex items-center text-dark-400 hover:text-white mb-8 transition-colors">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to home
-          </Link>
+    <div className="min-h-screen flex" style={{ backgroundColor: 'var(--bg)' }}>
 
-          {/* Logo */}
-          <div className="flex items-center space-x-3 mb-8">
-            <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-accent-secondary rounded-xl flex items-center justify-center">
-              <Building2 className="w-6 h-6 text-white" />
+      {/* ── Left: brand panel ────────────────────────────────── */}
+      <div
+        className="hidden lg:flex lg:w-[55%] xl:w-[60%] flex-col justify-between p-12 relative overflow-hidden"
+        style={{ backgroundColor: 'var(--surface)' }}
+      >
+        {/* Grid texture */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)',
+            backgroundSize: '48px 48px',
+            opacity: 0.5,
+          }}
+        />
+
+        {/* Corner marks */}
+        <div className="absolute top-6 left-6 w-8 h-8 border-t border-l" style={{ borderColor: 'var(--accent)', opacity: 0.6 }} />
+        <div className="absolute top-6 right-6 w-8 h-8 border-t border-r" style={{ borderColor: 'var(--accent)', opacity: 0.6 }} />
+        <div className="absolute bottom-6 left-6 w-8 h-8 border-b border-l" style={{ borderColor: 'var(--accent)', opacity: 0.6 }} />
+        <div className="absolute bottom-6 right-6 w-8 h-8 border-b border-r" style={{ borderColor: 'var(--accent)', opacity: 0.6 }} />
+
+        {/* Logo */}
+        <div className="relative z-10">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div
+              className="w-7 h-7 flex items-center justify-center"
+              style={{ backgroundColor: 'var(--accent)' }}
+            >
+              <span
+                className="text-xs font-bold"
+                style={{ color: 'var(--accent-dark)', fontFamily: 'var(--font-mono)' }}
+              >
+                FP
+              </span>
             </div>
-            <span className="text-2xl font-bold">Foreperson.ai</span>
+            <span
+              className="text-sm font-black tracking-widest uppercase"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Foreperson.ai
+            </span>
+          </Link>
+        </div>
+
+        {/* Center headline */}
+        <div className="relative z-10">
+          <p
+            className="label-mono-accent mb-6"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            // DOCUMENT INTELLIGENCE
+          </p>
+          <h2
+            className="font-black uppercase leading-none tracking-tight mb-5"
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 'clamp(3rem, 5vw, 5rem)',
+              lineHeight: 0.9,
+            }}
+          >
+            Your project,
+            <br />
+            <span style={{ color: 'var(--accent)' }}>fully read.</span>
+          </h2>
+          <p
+            className="text-sm leading-relaxed max-w-xs"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            AI that reads your contracts, flags conflicts, and answers questions
+            about your construction documents — so your team can focus on building.
+          </p>
+        </div>
+
+        {/* Stats strip */}
+        <div
+          className="relative z-10 grid grid-cols-3 gap-0 border-t pt-8"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          {PANELS.map(({ label, value }) => (
+            <div key={label} className="pr-6">
+              <p
+                className="label-mono mb-1"
+                style={{ fontFamily: 'var(--font-mono)' }}
+              >
+                {label}
+              </p>
+              <p
+                className="text-xl font-black uppercase"
+                style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}
+              >
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Right: form panel ────────────────────────────────── */}
+      <div
+        className="flex-1 flex flex-col items-center justify-center px-8 py-12"
+        style={{ backgroundColor: 'var(--bg)' }}
+      >
+        {/* Mobile logo */}
+        <div className="lg:hidden mb-10 self-start">
+          <Link href="/" className="flex items-center gap-2.5">
+            <div
+              className="w-7 h-7 flex items-center justify-center"
+              style={{ backgroundColor: 'var(--accent)' }}
+            >
+              <span
+                className="text-xs font-bold"
+                style={{ color: 'var(--accent-dark)', fontFamily: 'var(--font-mono)' }}
+              >
+                FP
+              </span>
+            </div>
+            <span
+              className="text-sm font-black tracking-widest uppercase"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Foreperson.ai
+            </span>
+          </Link>
+        </div>
+
+        <div className="w-full max-w-sm">
+          {/* Form header */}
+          <div className="mb-8">
+            <p
+              className="label-mono mb-2"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            >
+              // 01 — AUTHENTICATE
+            </p>
+            <h1
+              className="text-3xl font-black uppercase tracking-tight"
+              style={{ fontFamily: 'var(--font-display)' }}
+            >
+              Sign in
+            </h1>
           </div>
 
-          <h1 className="text-3xl font-bold mb-2">Welcome back</h1>
-          <p className="text-dark-400 mb-8">Sign in to your account to continue</p>
-
-          {error && (
-            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="email" className="input-label">Email</label>
+              <label
+                htmlFor="email"
+                className="block text-xs font-medium mb-1.5 uppercase tracking-wider"
+                style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}
+              >
+                Email
+              </label>
               <input
                 id="email"
                 type="email"
@@ -77,76 +196,60 @@ export default function LoginPage() {
                 className="input"
                 placeholder="you@company.com"
                 required
+                autoFocus
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="input-label">Password</label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input pr-12"
-                  placeholder="••••••••"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-dark-400 hover:text-white transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <label className="flex items-center space-x-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-brand-600 focus:ring-brand-500" />
-                <span className="text-sm text-dark-300">Remember me</span>
+              <label
+                htmlFor="password"
+                className="block text-xs font-medium mb-1.5 uppercase tracking-wider"
+                style={{ color: 'var(--text-secondary)', letterSpacing: '0.07em' }}
+              >
+                Password
               </label>
-              <a href="#" className="text-sm text-brand-400 hover:text-brand-300 transition-colors">
-                Forgot password?
-              </a>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input"
+                placeholder="••••••••"
+                required
+              />
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="btn-primary w-full flex items-center justify-center"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : (
-                'Sign in'
-              )}
+            {error && (
+              <div
+                className="text-xs px-3 py-2"
+                style={{
+                  color: '#f87171',
+                  backgroundColor: 'rgba(248,113,113,0.07)',
+                  border: '1px solid rgba(248,113,113,0.2)',
+                  fontFamily: 'var(--font-mono)',
+                  borderRadius: '2px',
+                }}
+              >
+                {error}
+              </div>
+            )}
+
+            <button type="submit" className="btn-primary w-full py-3 mt-2" disabled={loading}>
+              {loading ? 'Signing in…' : 'Sign in →'}
             </button>
           </form>
 
-          <p className="mt-8 text-center text-dark-400">
-            Don't have an account?{' '}
-            <Link href="/signup" className="text-brand-400 hover:text-brand-300 transition-colors">
-              Sign up free
+          <p
+            className="text-xs mt-6"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            No account yet?{' '}
+            <Link
+              href="/signup"
+              style={{ color: 'var(--accent)', fontWeight: 600 }}
+            >
+              Create one
             </Link>
-          </p>
-        </div>
-      </div>
-
-      {/* Right side - Decorative */}
-      <div className="hidden lg:flex flex-1 bg-dark-800 items-center justify-center relative overflow-hidden">
-        <div className="absolute inset-0 grid-bg opacity-30" />
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand-600/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent-secondary/20 rounded-full blur-3xl" />
-        
-        <div className="relative text-center p-12">
-          <div className="w-20 h-20 bg-brand-600/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Building2 className="w-10 h-10 text-brand-400" />
-          </div>
-          <h2 className="text-3xl font-bold mb-4">Construction Document Intelligence</h2>
-          <p className="text-dark-300 max-w-md">
-            Upload, analyze, and understand your construction documents with AI-powered insights.
           </p>
         </div>
       </div>

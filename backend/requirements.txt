@@ -3,13 +3,11 @@ fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 python-multipart==0.0.6
 pydantic[email]==2.5.2
 SQLAlchemy==2.0.23
 aiosqlite==0.19.0
-
-# AWS / Storage
-boto3==1.34.131
 
 # Document processing
 pymupdf==1.23.8
@@ -21,4 +19,15 @@ pandas==2.1.4
 # OCR support
 pytesseract==0.3.10
 Pillow==10.2.0
-argon2-cffi==23.1.0
+
+# Rate limiting
+slowapi==0.1.9
+
+# AI providers
+openai>=1.0.0
+anthropic>=0.20.0
+
+# Computer Vision (for reliable object counting)
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0

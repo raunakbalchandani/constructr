@@ -1,7 +1,7 @@
 """
 Database models and connection - SQLite version
 """
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, ForeignKey, Boolean, Index, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -32,7 +32,6 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
-    openai_api_key = Column(String(255), nullable=True)  # User's own OpenAI key
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -50,10 +49,13 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    __table_args__ = (Index('ix_project_owner_id', 'owner_id'),)
+
     # Relationships
     owner = relationship("User", back_populates="projects")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     chats = relationship("Chat", back_populates="project", cascade="all, delete-orphan")
+    memories = relationship("ProjectMemory", back_populates="project", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -71,6 +73,8 @@ class Document(Base):
     summary = Column(Text)  # AI-generated summary
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('ix_document_project_id', 'project_id'),)
 
     # Relationships
     project = relationship("Project", back_populates="documents")
@@ -98,8 +102,30 @@ class ChatMessage(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    __table_args__ = (Index('ix_chatmessage_chat_id', 'chat_id'),)
+
     # Relationships
     chat = relationship("Chat", back_populates="messages")
+
+
+class ProjectMemory(Base):
+    __tablename__ = "project_memories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    fact_key = Column(String(255), nullable=False)
+    fact_value = Column(Text, nullable=False)
+    confidence = Column(String(20), default="medium")  # "high" or "medium"
+    source_thread_id = Column(Integer, ForeignKey("chats.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_projectmemory_project_id', 'project_id'),
+        UniqueConstraint('project_id', 'fact_key', name='uq_projectmemory_project_fact_key'),
+    )
+
+    project = relationship("Project", back_populates="memories")
 
 
 # Database dependency for FastAPI
