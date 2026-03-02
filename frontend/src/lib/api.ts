@@ -133,13 +133,33 @@ export interface CompareResult {
   doc2_name: string
 }
 
+export interface ChatThread {
+  id: number
+  title: string | null
+  message_count: number
+  created_at: string
+}
+
+export interface ChatHistory {
+  id: number
+  title: string | null
+  messages: ChatMessage[]
+  created_at: string
+}
+
 export const chat = {
-  history: (projectId: number) =>
-    request<ChatMessage[]>(`/projects/${projectId}/chat`),
-  send: (projectId: number, message: string, model?: string) =>
+  threads: (projectId: number) =>
+    request<ChatThread[]>(`/projects/${projectId}/chats`),
+  newThread: (projectId: number) =>
+    request<ChatHistory>(`/projects/${projectId}/chats`, { method: 'POST' }),
+  history: (projectId: number, chatId?: number) =>
+    request<ChatHistory>(`/projects/${projectId}/chat${chatId ? `?chat_id=${chatId}` : ''}`),
+  deleteThread: (projectId: number, chatId: number) =>
+    request<void>(`/projects/${projectId}/chats/${chatId}`, { method: 'DELETE' }),
+  send: (projectId: number, message: string, model?: string, chatId?: number, useMemory = true, referencedChatId?: number) =>
     request<{ response: string }>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ project_id: projectId, message, model }),
+      body: JSON.stringify({ project_id: projectId, message, model, chat_id: chatId ?? null, use_memory: useMemory, referenced_chat_id: referencedChatId ?? null }),
     }),
   conflicts: (projectId: number, docIds?: number[]) =>
     request<Conflict[]>(`/projects/${projectId}/conflicts`, {

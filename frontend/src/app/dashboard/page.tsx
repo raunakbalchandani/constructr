@@ -708,15 +708,24 @@ function renderUserMessage(content: string) {
   )
 }
 
-function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange }: {
+function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange, threads, currentThreadId, onThreadSelect, onNewThread, onDeleteThread }: {
   files: UploadedFile[]; currentProject: Project | null
   messages: Message[]; isLoading: boolean
-  onSendMessage: (msg: string) => Promise<void>
+  onSendMessage: (msg: string, referencedChatId?: number, useMemory?: boolean) => Promise<void>
   activeModel: string
   onModelChange: (model: string) => void
+  threads: api.ChatThread[]
+  currentThreadId: number | null
+  onThreadSelect: (id: number) => void
+  onNewThread: () => Promise<void>
+  onDeleteThread: (id: number) => Promise<void>
 }) {
   const [input, setInput] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
+  const [threadOpen, setThreadOpen] = useState(false)
+  const [newThreadLoading, setNewThreadLoading] = useState(false)
+  const [memoryOn, setMemoryOn] = useState(true)
+  const [pendingRefChatId, setPendingRefChatId] = useState<number | null>(null)
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionStart, setMentionStart] = useState(0)
@@ -726,18 +735,27 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
+  // Mention dropdown items: files first, then other threads
+  const otherThreads = threads.filter(t => t.id !== currentThreadId)
   const mentionedFiles = files.filter(f =>
     mentionQuery === '' || f.name.toLowerCase().includes(mentionQuery.toLowerCase())
   )
+  const mentionedThreads = otherThreads.filter(t =>
+    mentionQuery === '' || (t.title ?? '').toLowerCase().includes(mentionQuery.toLowerCase())
+  )
+  const mentionItems: Array<{ kind: 'file'; name: string } | { kind: 'thread'; id: number; title: string }> = [
+    ...mentionedFiles.map(f => ({ kind: 'file' as const, name: f.name })),
+    ...mentionedThreads.map(t => ({ kind: 'thread' as const, id: t.id, title: t.title ?? `Chat ${t.id}` })),
+  ]
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
     setInput(val)
     const cursor = e.target.selectionStart ?? val.length
     const before = val.slice(0, cursor)
-    const atMatch = before.match(/@([\w.]*)$/)
+    const atMatch = before.match(/@([\w. ]*)$/)
     if (atMatch) {
-      setMentionQuery(atMatch[1])
+      setMentionQuery(atMatch[1].trimEnd())
       setMentionStart(before.lastIndexOf('@'))
       setMentionIndex(0)
       setMentionOpen(true)
@@ -746,9 +764,11 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
     }
   }
 
-  const selectMention = (filename: string) => {
+  const selectMention = (item: typeof mentionItems[0]) => {
+    const label = item.kind === 'file' ? item.name : item.title
     const after = input.slice(mentionStart + 1 + mentionQuery.length)
-    setInput(input.slice(0, mentionStart) + '@' + filename + ' ' + after.trimStart())
+    setInput(input.slice(0, mentionStart) + '@' + label + ' ' + after.trimStart())
+    if (item.kind === 'thread') setPendingRefChatId(item.id)
     setMentionOpen(false)
     setTimeout(() => inputRef.current?.focus(), 0)
   }
@@ -757,16 +777,18 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
     if (!input.trim() || isLoading || !currentProject) return
     setMentionOpen(false)
     const msg = input; setInput('')
-    await onSendMessage(msg)
+    const refId = pendingRefChatId ?? undefined
+    setPendingRefChatId(null)
+    await onSendMessage(msg, refId, memoryOn)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionOpen) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionedFiles.length - 1)) }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, mentionItems.length - 1)) }
       else if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)) }
       else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault()
-        if (mentionedFiles[mentionIndex]) selectMention(mentionedFiles[mentionIndex].name)
+        if (mentionItems[mentionIndex]) selectMention(mentionItems[mentionIndex])
       }
       else if (e.key === 'Escape') { e.preventDefault(); setMentionOpen(false) }
       return
@@ -775,6 +797,8 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
   }
 
   const activeModelLabel = ALL_MODELS.find(m => m.id === activeModel)?.label ?? activeModel
+
+  const currentThread = threads.find(t => t.id === currentThreadId)
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 8rem)' }}>
@@ -785,6 +809,70 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Ask Foreperson</h1>
         </div>
         <div className="flex items-center gap-3">
+          {/* Thread switcher */}
+          {threads.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setThreadOpen(o => !o)}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs transition-colors"
+                style={{
+                  border: '1px solid var(--border)',
+                  backgroundColor: threadOpen ? 'var(--surface)' : 'var(--card)',
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-secondary)',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                <MessageSquare size={11} />
+                <span>{currentThread?.title ?? 'Chat'}</span>
+                <ChevronDown size={11} />
+              </button>
+              {threadOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 min-w-[200px]"
+                  style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--border)' }}>
+                  {threads.map(t => (
+                    <div key={t.id} className="group flex items-center"
+                      style={{
+                        backgroundColor: t.id === currentThreadId ? 'var(--card)' : 'transparent',
+                        borderLeft: t.id === currentThreadId ? '2px solid var(--accent)' : '2px solid transparent',
+                      }}
+                      onMouseEnter={(e) => { if (t.id !== currentThreadId) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}
+                      onMouseLeave={(e) => { if (t.id !== currentThreadId) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}
+                    >
+                      <button className="flex-1 flex items-center justify-between px-3 py-2.5 text-left"
+                        onClick={() => { onThreadSelect(t.id); setThreadOpen(false) }}>
+                        <span className="text-xs" style={{ fontFamily: 'var(--font-mono)', color: t.id === currentThreadId ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{t.title ?? `Chat ${t.id}`}</span>
+                        <span className="text-xs ml-2" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{t.message_count}</span>
+                      </button>
+                      <button
+                        className="opacity-0 group-hover:opacity-100 px-2 py-2.5 transition-opacity"
+                        style={{ color: 'var(--text-secondary)' }}
+                        title="Delete chat"
+                        onClick={async (e) => { e.stopPropagation(); setThreadOpen(false); await onDeleteThread(t.id) }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border)' }}>
+                    <button
+                      onClick={async () => { setThreadOpen(false); setNewThreadLoading(true); await onNewThread(); setNewThreadLoading(false) }}
+                      disabled={newThreadLoading}
+                      className="w-full flex items-center gap-2 px-3 py-2.5 text-xs transition-colors"
+                      style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}
+                    >
+                      <Plus size={11} />
+                      {newThreadLoading ? 'Creating…' : 'New Chat'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* Model picker */}
           <div className="relative">
             <button
@@ -830,6 +918,22 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
               </div>
             )}
           </div>
+          {/* Memory toggle */}
+          <button
+            onClick={() => setMemoryOn(o => !o)}
+            title={memoryOn ? 'Memory ON — click to disable' : 'Memory OFF — click to enable'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
+            style={{
+              border: `1px solid ${memoryOn ? 'var(--accent)' : 'var(--border)'}`,
+              backgroundColor: memoryOn ? 'rgba(245,200,0,0.07)' : 'var(--card)',
+              fontFamily: 'var(--font-mono)',
+              color: memoryOn ? 'var(--accent)' : 'var(--text-secondary)',
+              letterSpacing: '0.05em',
+            }}
+          >
+            <span style={{ fontSize: '0.6rem' }}>◉</span>
+            {memoryOn ? 'MEM ON' : 'MEM OFF'}
+          </button>
           {files.length > 0 && (
             <div className="text-right">
               <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>CONTEXT</p>
@@ -922,22 +1026,27 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
       {/* Input */}
       <div className="mt-4 flex-shrink-0">
         <div className="relative">
-          {/* @mention dropdown */}
-          {mentionOpen && mentionedFiles.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto z-50"
+          {/* @mention dropdown — files + threads */}
+          {mentionOpen && mentionItems.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 w-full max-h-52 overflow-y-auto z-50"
               style={{ backgroundColor: 'var(--surface)', border: '1px solid var(--accent)', boxShadow: '0 -4px 16px rgba(0,0,0,0.3)' }}>
-              <div className="px-3 py-1.5 flex items-center gap-2"
+              <div className="px-3 py-1.5"
                 style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--accent)', letterSpacing: '0.08em' }}>
-                  @ REFERENCE DOCUMENT
+                  @ REFERENCE
                 </span>
               </div>
+              {mentionedFiles.length > 0 && (
+                <div className="px-3 py-1" style={{ borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>DOCUMENTS</span>
+                </div>
+              )}
               {mentionedFiles.map((f, i) => {
                 const c = cat(f.type)
                 const Icon = c.icon
                 return (
                   <button key={f.id}
-                    onClick={() => selectMention(f.name)}
+                    onClick={() => selectMention({ kind: 'file', name: f.name })}
                     className="w-full text-left flex items-center gap-3 px-3 py-2 transition-colors"
                     style={{
                       backgroundColor: i === mentionIndex ? 'rgba(245,200,0,0.08)' : 'transparent',
@@ -945,12 +1054,30 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
                     }}
                     onMouseEnter={() => setMentionIndex(i)}>
                     <Icon size={12} style={{ color: c.color, flexShrink: 0 }} />
-                    <span className="text-xs truncate flex-1" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                      {f.name}
-                    </span>
-                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)', fontSize: '0.6rem' }}>
-                      {c.label}
-                    </span>
+                    <span className="text-xs truncate flex-1" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{f.name}</span>
+                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--text-secondary)', fontSize: '0.6rem' }}>{c.label}</span>
+                  </button>
+                )
+              })}
+              {mentionedThreads.length > 0 && (
+                <div className="px-3 py-1" style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.06em' }}>CHAT THREADS</span>
+                </div>
+              )}
+              {mentionedThreads.map((t, i) => {
+                const idx = mentionedFiles.length + i
+                return (
+                  <button key={t.id}
+                    onClick={() => selectMention({ kind: 'thread', id: t.id, title: t.title ?? `Chat ${t.id}` })}
+                    className="w-full text-left flex items-center gap-3 px-3 py-2 transition-colors"
+                    style={{
+                      backgroundColor: idx === mentionIndex ? 'rgba(245,200,0,0.08)' : 'transparent',
+                      borderBottom: '1px solid var(--border)',
+                    }}
+                    onMouseEnter={() => setMentionIndex(idx)}>
+                    <MessageSquare size={12} style={{ color: '#60A5FA', flexShrink: 0 }} />
+                    <span className="text-xs truncate flex-1" style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{t.title ?? `Chat ${t.id}`}</span>
+                    <span className="text-xs flex-shrink-0" style={{ color: '#60A5FA', fontSize: '0.6rem' }}>THREAD</span>
                   </button>
                 )
               })}
@@ -1497,6 +1624,8 @@ export default function DashboardPage() {
   const [chatMsgs, setChatMsgs] = useState<Message[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [chatLoaded, setChatLoaded] = useState<Record<string, boolean>>({})
+  const [chatThreads, setChatThreads] = useState<api.ChatThread[]>([])
+  const [currentChatId, setCurrentChatId] = useState<number | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
 
   useEffect(() => { loadProjects() }, [])
@@ -1507,11 +1636,11 @@ export default function DashboardPage() {
     if (savedModel) setSelectedModel(savedModel)
   }, [])
   useEffect(() => {
-    if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })) }
-    else { setFiles([]); setChatMsgs([]) }
+    if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })); setChatThreads([]); setCurrentChatId(null) }
+    else { setFiles([]); setChatMsgs([]); setChatThreads([]); setCurrentChatId(null) }
   }, [current])
   useEffect(() => {
-    if (tab === 'chat' && current && !chatLoaded[current.id]) loadChatHistory()
+    if (tab === 'chat' && current && !chatLoaded[current.id]) loadChatThreads()
   }, [tab, current])
 
   const changeTab = (t: string) => {
@@ -1541,19 +1670,63 @@ export default function DashboardPage() {
     } catch (e) { console.error(e) }
   }
 
-  const loadChatHistory = async () => {
+  const loadChatThreads = async () => {
     if (!current) return
     try {
-      const data = await api.chat.history(parseInt(current.id))
-      const msgs = (data as any).messages
-      if (msgs?.length > 0) {
-        setChatMsgs(msgs.map((m: any) => ({ id: m.id.toString(), role: m.role, content: m.content, timestamp: new Date(m.created_at) })))
+      const threads = await api.chat.threads(parseInt(current.id))
+      setChatThreads(threads)
+      if (threads.length > 0) {
+        await loadChatHistory(threads[0].id)
+      } else {
+        // No threads yet — the first send will create one
+        setChatMsgs([{ id: '0', role: 'assistant', content: 'Hello! I\'m Foreperson — your AI construction assistant. Upload project files for project-specific answers, or ask me anything about construction in general.', timestamp: new Date() }])
+        setChatLoaded((p) => ({ ...p, [current.id]: true }))
+      }
+    } catch {
+      setChatMsgs([{ id: '0', role: 'assistant', content: 'Hello! I\'m Foreperson — your AI construction assistant. Ask me anything about construction, or upload files for project-specific answers.', timestamp: new Date() }])
+    }
+  }
+
+  const loadChatHistory = async (chatId: number) => {
+    if (!current) return
+    try {
+      const data = await api.chat.history(parseInt(current.id), chatId)
+      setCurrentChatId(data.id)
+      if (data.messages?.length > 0) {
+        setChatMsgs(data.messages.map((m: any) => ({ id: m.id.toString(), role: m.role, content: m.content, timestamp: new Date(m.created_at) })))
       } else {
         setChatMsgs([{ id: '0', role: 'assistant', content: 'Hello! I\'m Foreperson — your AI construction assistant. Upload project files for project-specific answers, or ask me anything about construction in general.', timestamp: new Date() }])
       }
       setChatLoaded((p) => ({ ...p, [current.id]: true }))
     } catch {
       setChatMsgs([{ id: '0', role: 'assistant', content: 'Hello! I\'m Foreperson — your AI construction assistant. Ask me anything about construction, or upload files for project-specific answers.', timestamp: new Date() }])
+    }
+  }
+
+  const handleNewThread = async () => {
+    if (!current) return
+    const newThread = await api.chat.newThread(parseInt(current.id))
+    setChatThreads((prev) => [...prev, { id: newThread.id, title: newThread.title, message_count: 0, created_at: newThread.created_at }])
+    setCurrentChatId(newThread.id)
+    setChatMsgs([{ id: '0', role: 'assistant', content: 'New chat started! Ask me anything about your project or construction in general.', timestamp: new Date() }])
+  }
+
+  const handleThreadSelect = async (chatId: number) => {
+    await loadChatHistory(chatId)
+  }
+
+  const handleDeleteThread = async (chatId: number) => {
+    if (!current) return
+    await api.chat.deleteThread(parseInt(current.id), chatId)
+    const remaining = chatThreads.filter(t => t.id !== chatId)
+    setChatThreads(remaining)
+    if (currentChatId === chatId) {
+      if (remaining.length > 0) {
+        await loadChatHistory(remaining[remaining.length - 1].id)
+      } else {
+        setCurrentChatId(null)
+        setChatMsgs([{ id: '0', role: 'assistant', content: 'Hello! I\'m Foreperson — your AI construction assistant. Upload project files for project-specific answers, or ask me anything about construction in general.', timestamp: new Date() }])
+      }
     }
   }
 
@@ -1602,18 +1775,20 @@ export default function DashboardPage() {
     } catch (e) { console.error(e) }
   }
 
-  const handleSendMessage = async (msg: string) => {
+  const handleSendMessage = async (msg: string, referencedChatId?: number, useMemory = true) => {
     if (!current) return
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: msg, timestamp: new Date() }
     setChatMsgs((p) => [...p, userMsg])
     setChatLoading(true)
     try {
-      const data = await api.chat.send(parseInt(current.id), msg, selectedModel)
+      const data = await api.chat.send(parseInt(current.id), msg, selectedModel, currentChatId ?? undefined, useMemory, referencedChatId)
       setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: data.response ?? 'No response.', timestamp: new Date() }])
       setChatLoaded((p) => ({ ...p, [current.id]: true }))
+      // Refresh thread list to update message counts
+      api.chat.threads(parseInt(current.id)).then(setChatThreads).catch(() => {})
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'An error occurred. Please try again.'
-      setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: msg, timestamp: new Date() }])
+      const errMsg = err instanceof Error ? err.message : 'An error occurred. Please try again.'
+      setChatMsgs((p) => [...p, { id: (Date.now() + 1).toString(), role: 'assistant', content: errMsg, timestamp: new Date() }])
     } finally { setChatLoading(false) }
   }
 
@@ -1621,7 +1796,7 @@ export default function DashboardPage() {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
-      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
+      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />

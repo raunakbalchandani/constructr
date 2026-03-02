@@ -127,7 +127,10 @@ class DocumentResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     project_id: Optional[int] = None
+    chat_id: Optional[int] = None
     model: Optional[str] = None  # e.g. "gpt-4o-mini" or "claude-sonnet-4-6"
+    use_memory: bool = True
+    referenced_chat_id: Optional[int] = None
 
 
 class ChatResponse(BaseModel):
@@ -147,7 +150,18 @@ class ChatMessageResponse(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     id: int
+    title: Optional[str] = None
     messages: List[ChatMessageResponse]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ChatThreadResponse(BaseModel):
+    id: int
+    title: Optional[str] = None
+    message_count: int
     created_at: datetime
 
     class Config:
@@ -199,6 +213,14 @@ class CompareResponse(BaseModel):
 @app.on_event("startup")
 async def startup():
     init_db()
+    # Add title column to chats table if it doesn't exist (migration)
+    from backend.database import engine
+    with engine.connect() as conn:
+        try:
+            conn.execute(__import__('sqlalchemy').text("ALTER TABLE chats ADD COLUMN title VARCHAR(255)"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
 
 
 # Health check
@@ -586,16 +608,25 @@ async def chat(
         })
 
     # Get or create chat session for this project
-
-    chat = db.query(Chat).filter(
-        Chat.project_id == chat_request.project_id,
-        Chat.user_id == current_user.id
-    ).first()
+    if chat_request.chat_id:
+        chat = db.query(Chat).filter(
+            Chat.id == chat_request.chat_id,
+            Chat.project_id == chat_request.project_id,
+            Chat.user_id == current_user.id
+        ).first()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat thread not found")
+    else:
+        chat = db.query(Chat).filter(
+            Chat.project_id == chat_request.project_id,
+            Chat.user_id == current_user.id
+        ).order_by(Chat.created_at.asc()).first()
 
     if not chat:
         chat = Chat(
             project_id=chat_request.project_id,
-            user_id=current_user.id
+            user_id=current_user.id,
+            title="Chat 1"
         )
         db.add(chat)
         db.commit()
@@ -622,11 +653,32 @@ async def chat(
     raw_history.reverse()  # restore chronological order
     chat_history = [{"role": m.role, "content": m.content} for m in raw_history]
 
-    # Load cross-thread project memory
-    memories = db.query(ProjectMemory).filter(
-        ProjectMemory.project_id == chat_request.project_id
-    ).order_by(ProjectMemory.updated_at.desc()).all()
-    memory_list = [{"fact_key": m.fact_key, "fact_value": m.fact_value} for m in memories]
+    # Load cross-thread project memory (only if enabled)
+    memory_list = []
+    if chat_request.use_memory:
+        memories = db.query(ProjectMemory).filter(
+            ProjectMemory.project_id == chat_request.project_id
+        ).order_by(ProjectMemory.updated_at.desc()).all()
+        memory_list = [{"fact_key": m.fact_key, "fact_value": m.fact_value} for m in memories]
+
+    # Load referenced chat thread context if specified
+    if chat_request.referenced_chat_id:
+        ref_chat = db.query(Chat).filter(
+            Chat.id == chat_request.referenced_chat_id,
+            Chat.project_id == chat_request.project_id,
+            Chat.user_id == current_user.id
+        ).first()
+        if ref_chat:
+            ref_msgs = db.query(ChatMessage).filter(
+                ChatMessage.chat_id == ref_chat.id
+            ).order_by(ChatMessage.created_at.asc()).limit(40).all()
+            if ref_msgs:
+                ref_title = ref_chat.title or f"Chat {ref_chat.id}"
+                ref_text = "\n".join(f"{m.role.upper()}: {m.content}" for m in ref_msgs)
+                chat_history = [
+                    {"role": "user", "content": f"[Context from {ref_title}]\n{ref_text}"},
+                    {"role": "assistant", "content": f"I've read the context from {ref_title}. How can I help?"}
+                ] + chat_history
 
     # Create AI assistant and get response
     try:
@@ -673,45 +725,141 @@ async def chat(
         )
 
 
-@app.get("/projects/{project_id}/chat", response_model=ChatHistoryResponse)
-async def get_chat_history(
+@app.get("/projects/{project_id}/chats", response_model=List[ChatThreadResponse])
+async def list_chat_threads(
     project_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get chat history for a project."""
-    # Verify project ownership
+    """List all chat threads for a project."""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user.id
     ).first()
-    
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Get or create chat
+
+    chats = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).order_by(Chat.created_at.asc()).all()
+
+    result = []
+    for c in chats:
+        count = db.query(ChatMessage).filter(ChatMessage.chat_id == c.id).count()
+        result.append({"id": c.id, "title": c.title, "message_count": count, "created_at": c.created_at})
+    return result
+
+
+@app.post("/projects/{project_id}/chats", response_model=ChatHistoryResponse)
+async def create_chat_thread(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new chat thread for a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    count = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).count()
+
+    chat = Chat(
+        project_id=project_id,
+        user_id=current_user.id,
+        title=f"Chat {count + 1}"
+    )
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
+    return {"id": chat.id, "title": chat.title, "messages": [], "created_at": chat.created_at}
+
+
+@app.delete("/projects/{project_id}/chats/{chat_id}")
+async def delete_chat_thread(
+    project_id: int,
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a chat thread. Cannot delete the last remaining thread."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    total = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).count()
+
     chat = db.query(Chat).filter(
+        Chat.id == chat_id,
         Chat.project_id == project_id,
         Chat.user_id == current_user.id
     ).first()
-    
     if not chat:
-        # Create empty chat if none exists
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+
+    db.delete(chat)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/projects/{project_id}/chat", response_model=ChatHistoryResponse)
+async def get_chat_history(
+    project_id: int,
+    chat_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get chat history for a project (optionally a specific thread)."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if chat_id:
+        chat = db.query(Chat).filter(
+            Chat.id == chat_id,
+            Chat.project_id == project_id,
+            Chat.user_id == current_user.id
+        ).first()
+        if not chat:
+            raise HTTPException(status_code=404, detail="Chat thread not found")
+    else:
+        chat = db.query(Chat).filter(
+            Chat.project_id == project_id,
+            Chat.user_id == current_user.id
+        ).order_by(Chat.created_at.asc()).first()
+
+    if not chat:
         chat = Chat(
             project_id=project_id,
-            user_id=current_user.id
+            user_id=current_user.id,
+            title="Chat 1"
         )
         db.add(chat)
         db.commit()
         db.refresh(chat)
-    
-    # Get all messages ordered by creation time
+
     messages = db.query(ChatMessage).filter(
         ChatMessage.chat_id == chat.id
     ).order_by(ChatMessage.created_at.asc()).all()
-    
+
     return {
         "id": chat.id,
+        "title": chat.title,
         "messages": messages,
         "created_at": chat.created_at
     }
