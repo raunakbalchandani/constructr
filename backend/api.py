@@ -159,7 +159,40 @@ class ConflictResponse(BaseModel):
     severity: str
     title: str
     description: str
+    resolution: str = ""
     documents: List[str]
+
+
+class ConflictsRequest(BaseModel):
+    doc_ids: Optional[List[int]] = None  # if None, use all docs in project
+
+
+class CompareRequest(BaseModel):
+    doc_id_1: int
+    doc_id_2: int
+
+
+class CompareConflictItem(BaseModel):
+    title: str
+    doc_a: str
+    doc_b: str
+    impact: str
+    recommendation: str
+
+
+class CompareRiskItem(BaseModel):
+    title: str
+    description: str
+
+
+class CompareResponse(BaseModel):
+    summary: str
+    conflicts: List[CompareConflictItem]
+    gaps: List[str]
+    agreements: List[str]
+    risks: List[CompareRiskItem]
+    doc1_name: str
+    doc2_name: str
 
 
 # Initialize database on startup
@@ -748,140 +781,113 @@ async def delete_memory_fact(
 async def analyze_conflicts(
     request: Request,
     project_id: int,
+    body: ConflictsRequest = ConflictsRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Analyze documents in a project for conflicts."""
-    # Verify project ownership
+    """Analyze documents in a project for conflicts. Optionally filter to specific doc IDs."""
     project = db.query(Project).filter(
         Project.id == project_id,
         Project.owner_id == current_user.id
     ).first()
-    
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    
-    # Get all documents for the project
-    documents = db.query(Document).filter(Document.project_id == project_id).all()
-    
-    if len(documents) < 2:
-        raise HTTPException(
-            status_code=400,
-            detail="At least 2 documents are required for conflict analysis"
-        )
-    
-    if not ConstructionAI:
-        raise HTTPException(
-            status_code=500,
-            detail="AI assistant not available"
-        )
 
-    # Prepare document list for AI
+    if not ConstructionAI:
+        raise HTTPException(status_code=500, detail="AI assistant not available")
+
+    query = db.query(Document).filter(Document.project_id == project_id)
+    if body.doc_ids:
+        query = query.filter(Document.id.in_(body.doc_ids))
+    documents = query.all()
+
     doc_list = []
-    doc_name_map = {}
-    
     for doc in documents:
         if doc.extracted_text:
-            word_count = len(doc.extracted_text.split())
             doc_list.append({
                 "filename": doc.original_filename,
                 "document_type": doc.document_type or "unknown",
                 "text_content": doc.extracted_text,
-                "word_count": word_count,
+                "word_count": len(doc.extracted_text.split()),
                 "file_path": doc.file_path,
             })
-            doc_name_map[doc.original_filename] = doc
-    
+
     if len(doc_list) < 2:
-        raise HTTPException(
-            status_code=400,
-            detail="At least 2 documents with extractable text are required"
-        )
-    
-    # Use AI to find conflicts
+        raise HTTPException(status_code=400, detail="At least 2 documents with extractable text are required")
+
     try:
         assistant = ConstructionAI()
         assistant.load_documents(doc_list)
-        conflict_analysis = assistant.find_conflicts()
-        
-        # Parse the AI response into structured conflicts
-        conflicts = _parse_conflict_response(conflict_analysis, [d['filename'] for d in doc_list])
-        
-        return conflicts
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Conflict analysis error: {str(e)}"
-        )
+        raw_conflicts = assistant.find_conflicts()
 
-
-def _parse_conflict_response(analysis_text: str, document_names: List[str]) -> List[dict]:
-    """Parse AI conflict analysis text into structured conflict objects."""
-    import re
-    
-    conflicts = []
-    
-    # Split by common conflict indicators
-    # Look for patterns like "##", numbered lists, or conflict descriptions
-    sections = re.split(r'\n(?=##|\d+\.|[-*]|Conflict|Issue|Problem)', analysis_text, flags=re.IGNORECASE)
-    
-    conflict_id = 1
-    for section in sections:
-        section = section.strip()
-        if not section or len(section) < 50:  # Skip very short sections
-            continue
-        
-        # Determine severity based on keywords
-        severity = "medium"
-        if any(word in section.lower() for word in ["critical", "urgent", "severe", "high", "major"]):
-            severity = "high"
-        elif any(word in section.lower() for word in ["minor", "low", "small"]):
-            severity = "low"
-        
-        # Extract title (first line or first sentence)
-        lines = section.split('\n')
-        title = lines[0].strip()
-        if title.startswith('#'):
-            title = title.lstrip('#').strip()
-        if len(title) > 100:
-            title = title[:100] + "..."
-        
-        # Extract description (rest of section, limited to 500 chars)
-        description = '\n'.join(lines[1:]).strip()[:500]
-        if not description:
-            description = section[:500]
-        
-        # Find which documents are mentioned
-        mentioned_docs = []
-        for doc_name in document_names:
-            if doc_name.lower() in section.lower():
-                mentioned_docs.append(doc_name)
-        
-        # If no documents mentioned, include all (conflict might be across all)
-        if not mentioned_docs and len(document_names) >= 2:
-            mentioned_docs = document_names[:2]  # At least 2 for a conflict
-        
-        if title and description and mentioned_docs:
-            conflicts.append({
-                "id": str(conflict_id),
-                "severity": severity,
-                "title": title,
-                "description": description,
-                "documents": mentioned_docs
+        result = []
+        for i, c in enumerate(raw_conflicts):
+            result.append({
+                "id": str(i + 1),
+                "severity": c.get("severity", "medium"),
+                "title": c.get("title", "Untitled conflict"),
+                "description": c.get("description", ""),
+                "resolution": c.get("resolution", ""),
+                "documents": c.get("documents", []),
             })
-            conflict_id += 1
-    
-    # If parsing didn't work well, create a single summary conflict
-    if not conflicts and analysis_text:
-        conflicts.append({
-            "id": "1",
-            "severity": "medium",
-            "title": "Document Analysis Results",
-            "description": analysis_text[:500],
-            "documents": document_names[:2] if len(document_names) >= 2 else document_names
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Conflict analysis error: {str(e)}")
+
+
+@app.post("/projects/{project_id}/compare", response_model=CompareResponse)
+async def compare_documents(
+    project_id: int,
+    body: CompareRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Deep comparison of two documents in a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not ConstructionAI:
+        raise HTTPException(status_code=500, detail="AI assistant not available")
+
+    doc1 = db.query(Document).filter(Document.id == body.doc_id_1, Document.project_id == project_id).first()
+    doc2 = db.query(Document).filter(Document.id == body.doc_id_2, Document.project_id == project_id).first()
+
+    if not doc1 or not doc2:
+        raise HTTPException(status_code=404, detail="One or both documents not found")
+    if doc1.id == doc2.id:
+        raise HTTPException(status_code=400, detail="Select two different documents")
+
+    doc_list = []
+    for doc in [doc1, doc2]:
+        doc_list.append({
+            "filename": doc.original_filename,
+            "document_type": doc.document_type or "unknown",
+            "text_content": doc.extracted_text or "",
+            "word_count": len((doc.extracted_text or "").split()),
+            "file_path": doc.file_path,
         })
-    
-    return conflicts
+
+    try:
+        assistant = ConstructionAI()
+        assistant.load_documents(doc_list)
+        result_dict = assistant.compare_documents(0, 1)
+        return {
+            "summary": result_dict.get("summary", ""),
+            "conflicts": result_dict.get("conflicts", []),
+            "gaps": result_dict.get("gaps", []),
+            "agreements": result_dict.get("agreements", []),
+            "risks": result_dict.get("risks", []),
+            "doc1_name": doc1.original_filename,
+            "doc2_name": doc2.original_filename,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compare error: {str(e)}")
+
+
 
 
 # Run with: uvicorn backend.api:app --reload

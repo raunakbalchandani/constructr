@@ -11,7 +11,7 @@ import {
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -999,8 +999,8 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
 
   const analyze = async () => {
     if (!currentProject) return
-    const targets = selectedIds.size > 0 ? files.filter(f => selectedIds.has(f.id)) : files
-    if (targets.length < 2) { setError('Select at least 2 files to analyze'); return }
+    const scope = selectedIds.size > 0 ? files.filter(f => selectedIds.has(f.id)) : files
+    if (scope.length < 2) { setError('Select at least 2 files to analyze'); return }
     setAnalyzing(true); setError('')
     try {
       const docIds = selectedIds.size > 0 ? Array.from(selectedIds).map(id => parseInt(id)) : undefined
@@ -1011,51 +1011,70 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
     } finally { setAnalyzing(false) }
   }
 
-  const bySeverity = (s: string) => conflicts.filter((c) => c.severity === s)
-  const highCount = bySeverity('high').length
-  const medCount = bySeverity('medium').length
-  const lowCount = bySeverity('low').length
+  const high = conflicts.filter(c => c.severity === 'high')
+  const med  = conflicts.filter(c => c.severity === 'medium')
+  const low  = conflicts.filter(c => c.severity === 'low')
 
-  const sevStyle: Record<string, { bg: string; text: string; border: string }> = {
-    high:   { bg: 'rgba(248,113,113,0.06)', text: '#f87171', border: 'rgba(248,113,113,0.3)' },
-    medium: { bg: 'rgba(245,200,0,0.06)',   text: 'var(--accent)', border: 'rgba(245,200,0,0.3)' },
-    low:    { bg: 'rgba(96,165,250,0.06)',   text: '#60a5fa', border: 'rgba(96,165,250,0.2)' },
+  const SEV: Record<string, { accent: string; bg: string; border: string; label: string }> = {
+    high:   { accent: '#ef4444', bg: 'rgba(239,68,68,0.03)',  border: 'rgba(239,68,68,0.18)',  label: 'HIGH' },
+    medium: { accent: '#f5c800', bg: 'rgba(245,200,0,0.03)',  border: 'rgba(245,200,0,0.18)',  label: 'MED'  },
+    low:    { accent: '#60a5fa', bg: 'rgba(96,165,250,0.03)', border: 'rgba(96,165,250,0.15)', label: 'LOW'  },
   }
 
+  const mono = { fontFamily: 'var(--font-mono)' } as const
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// CONFLICT DETECTION</p>
+          <p style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: 4 }}>// RISK REGISTER</p>
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Conflicts</h1>
         </div>
-        <button onClick={analyze} disabled={analyzing || files.length < 2}
-          className="btn-primary flex items-center gap-2 flex-shrink-0">
-          {analyzing ? <><Loader2 size={13} className="animate-spin" /> Analyzing…</> : <><AlertTriangle size={13} /> Run Analysis</>}
+        <button onClick={analyze} disabled={analyzing || files.length < 2} className="btn-primary flex items-center gap-2 flex-shrink-0">
+          {analyzing ? <><Loader2 size={13} className="animate-spin" />Scanning…</> : <><ShieldAlert size={13} />Run Scan</>}
         </button>
       </div>
 
+      {/* Stats bar */}
+      {conflicts.length > 0 && (
+        <div className="flex items-stretch gap-px" style={{ backgroundColor: 'var(--border)' }}>
+          {[
+            { label: 'HIGH',  count: high.length,      color: '#ef4444' },
+            { label: 'MED',   count: med.length,       color: '#f5c800' },
+            { label: 'LOW',   count: low.length,       color: '#60a5fa' },
+            { label: 'TOTAL', count: conflicts.length, color: 'var(--text-primary)' },
+          ].map(({ label, count, color }) => (
+            <div key={label} className="flex-1 px-4 py-3" style={{ backgroundColor: 'var(--card)' }}>
+              <div style={{ ...mono, fontSize: '0.55rem', letterSpacing: '0.12em', color: 'var(--text-secondary)', marginBottom: 4 }}>{label}</div>
+              <div className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)', color }}>{count}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* File selector */}
       {files.length >= 2 && (
-        <div style={{ border: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
-          <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-            <p className="label-mono text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
-              SELECT FILES TO ANALYZE — {selectedIds.size === 0 ? 'all files' : `${selectedIds.size} selected`}
-            </p>
+        <div style={{ border: '1px solid var(--border)' }}>
+          <div className="px-4 py-2.5 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+            <span style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>
+              SCOPE — {selectedIds.size === 0 ? `ALL ${files.length} FILES` : `${selectedIds.size} OF ${files.length} SELECTED`}
+            </span>
+            {selectedIds.size > 0 && (
+              <button onClick={() => setSelectedIds(new Set())} style={{ ...mono, fontSize: '0.55rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>CLEAR</button>
+            )}
           </div>
           <div className="p-3 flex flex-wrap gap-2">
             {files.map(f => {
-              const active = selectedIds.has(f.id)
+              const on = selectedIds.has(f.id)
               return (
-                <button key={f.id} onClick={() => toggleFile(f.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
-                  style={{
-                    fontFamily: 'var(--font-mono)', fontSize: '0.65rem',
-                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
-                    backgroundColor: active ? 'rgba(245,200,0,0.08)' : 'transparent',
-                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
-                  }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? 'var(--accent)' : 'var(--border)', flexShrink: 0, display: 'inline-block' }} />
+                <button key={f.id} onClick={() => toggleFile(f.id)} className="flex items-center gap-2 px-3 py-1.5 transition-all" style={{
+                  border: `1px solid ${on ? 'var(--accent)' : 'var(--border)'}`,
+                  backgroundColor: on ? 'rgba(245,200,0,0.07)' : 'transparent',
+                  ...mono, fontSize: '0.63rem',
+                  color: on ? 'var(--accent)' : 'var(--text-secondary)',
+                }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: on ? 'var(--accent)' : 'transparent', border: `1px solid ${on ? 'var(--accent)' : 'var(--text-secondary)'}`, flexShrink: 0, display: 'inline-block' }} />
                   {f.name}
                 </button>
               )
@@ -1064,76 +1083,63 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
         </div>
       )}
 
-      {/* Summary stats */}
-      {conflicts.length > 0 && (
-        <div className="grid grid-cols-3 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-          {[
-            { label: 'High', count: highCount, color: '#f87171' },
-            { label: 'Medium', count: medCount, color: 'var(--accent)' },
-            { label: 'Low', count: lowCount, color: '#60a5fa' },
-          ].map(({ label, count, color }) => (
-            <div key={label} className="p-5" style={{ backgroundColor: 'var(--card)' }}>
-              <p className="label-mono mb-1 text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{label} Severity</p>
-              <p className="text-3xl font-black" style={{ fontFamily: 'var(--font-display)', color }}>{count}</p>
-            </div>
-          ))}
+      {error && (
+        <div className="px-4 py-3 text-xs" style={{ color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', ...mono }}>
+          ✖ {error}
         </div>
       )}
 
-      {error && (
-        <div className="text-xs px-3 py-2" style={{
-          color: '#f87171', backgroundColor: 'rgba(248,113,113,0.07)',
-          border: '1px solid rgba(248,113,113,0.2)', fontFamily: 'var(--font-mono)'
-        }}>{error}</div>
-      )}
-
+      {/* Empty states */}
       {files.length < 2 ? (
-        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
-          <FileSearch size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 files to detect conflicts</p>
+        <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
+          <FileSearch size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p style={{ ...mono, fontSize: '0.68rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>UPLOAD AT LEAST 2 DOCUMENTS</p>
         </div>
       ) : conflicts.length === 0 && !analyzing ? (
-        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
-          <AlertTriangle size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {files.length} files ready — {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'all files'} will be scanned
+        <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
+          <ShieldAlert size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p style={{ ...mono, fontSize: '0.68rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>
+            {selectedIds.size > 0 ? `${selectedIds.size}` : files.length} FILES IN SCOPE — READY TO SCAN
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {conflicts.map((c) => {
-            const s = sevStyle[c.severity] ?? sevStyle.medium
+        /* Conflict cards */
+        <div className="space-y-2">
+          {conflicts.map((c, i) => {
+            const s = SEV[c.severity] ?? SEV.medium
             return (
-              <div key={c.id} style={{ border: `1px solid ${s.border}`, backgroundColor: s.bg }}>
-                {/* Header */}
-                <div className="flex items-start justify-between gap-4 px-5 py-4"
-                  style={{ borderBottom: `1px solid ${s.border}` }}>
-                  <h3 className="font-semibold text-sm leading-snug" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
-                  <span className="flex-shrink-0 px-2 py-0.5"
-                    style={{ color: s.text, border: `1px solid ${s.border}`, fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em' }}>
-                    {c.severity.toUpperCase()}
-                  </span>
+              <div key={c.id} style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
+                {/* Number + title + badge */}
+                <div className="flex items-stretch" style={{ borderBottom: `1px solid ${s.border}` }}>
+                  <div className="flex items-center justify-center px-4" style={{ borderRight: `1px solid ${s.border}`, minWidth: 52, backgroundColor: s.bg }}>
+                    <span style={{ ...mono, fontSize: '0.7rem', color: s.accent, letterSpacing: '0.04em' }}>{String(i + 1).padStart(2, '0')}</span>
+                  </div>
+                  <div className="flex-1 flex items-center justify-between gap-3 px-4 py-3.5">
+                    <h3 className="font-bold text-sm leading-snug" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
+                    <span style={{ ...mono, fontSize: '0.55rem', letterSpacing: '0.1em', color: s.accent, border: `1px solid ${s.accent}`, padding: '1px 7px', flexShrink: 0 }}>{s.label}</span>
+                  </div>
                 </div>
                 {/* Description */}
-                <div className="px-5 py-3 text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', borderBottom: `1px solid ${s.border}` }}>
+                <div className="px-4 py-3 text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', backgroundColor: s.bg, borderBottom: `1px solid ${s.border}` }}>
                   {c.description}
                 </div>
                 {/* Resolution */}
                 {c.resolution && (
-                  <div className="px-5 py-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
-                    <span style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.08em' }}>→ RESOLUTION: </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{c.resolution}</span>
+                  <div className="px-4 py-3 flex gap-2.5 text-xs" style={{ borderBottom: c.documents.length ? `1px solid ${s.border}` : undefined }}>
+                    <ArrowRight size={11} style={{ color: s.accent, flexShrink: 0, marginTop: 1 }} />
+                    <span style={{ color: 'var(--text-primary)' }}>{c.resolution}</span>
                   </div>
                 )}
                 {/* Doc tags */}
-                <div className="px-5 py-3 flex flex-wrap gap-1.5">
-                  {c.documents.map((doc, i) => (
-                    <span key={i} className="px-2 py-0.5"
-                      style={{ backgroundColor: 'var(--bg)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', border: '1px solid var(--border)' }}>
-                      {doc}
-                    </span>
-                  ))}
-                </div>
+                {c.documents.length > 0 && (
+                  <div className="px-4 py-2.5 flex flex-wrap gap-1.5">
+                    {c.documents.map((doc, j) => (
+                      <span key={j} style={{ ...mono, fontSize: '0.58rem', color: 'var(--text-secondary)', border: '1px solid var(--border)', padding: '1px 7px', backgroundColor: 'var(--bg)' }}>
+                        {doc}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -1151,7 +1157,7 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
   const [comparing, setComparing] = useState(false)
   const [error, setError] = useState('')
 
-  const compare = async () => {
+  const runCompare = async () => {
     if (!f1 || !f2 || !currentProject) return
     setComparing(true); setError('')
     try {
@@ -1162,57 +1168,161 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
     } finally { setComparing(false) }
   }
 
+  const mono = { fontFamily: 'var(--font-mono)' } as const
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div>
-        <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>// DOCUMENT COMPARE</p>
+        <p style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: 4 }}>// DOCUMENT COMPARE</p>
         <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Compare</h1>
       </div>
 
+      {/* Doc selectors */}
       <div className="grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-        {[{ val: f1, other: f2, set: setF1, label: 'Document A' }, { val: f2, other: f1, set: setF2, label: 'Document B' }].map(
-          ({ val, other, set, label }) => (
-            <div key={label} className="p-5" style={{ backgroundColor: 'var(--card)' }}>
-              <label className="block label-mono mb-2 text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{label}</label>
-              <select value={val} onChange={(e) => { set(e.target.value); setResult(null) }} className="input appearance-none">
-                <option value="">Select a file…</option>
-                {files.filter((f) => f.id !== other).map((f) => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
-                ))}
-              </select>
-            </div>
-          )
-        )}
+        {[
+          { val: f1, other: f2, set: setF1, label: 'DOCUMENT A' },
+          { val: f2, other: f1, set: setF2, label: 'DOCUMENT B' },
+        ].map(({ val, other, set, label }) => (
+          <div key={label} className="p-5" style={{ backgroundColor: 'var(--card)' }}>
+            <label className="block mb-2" style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: 'var(--text-secondary)' }}>{label}</label>
+            <select value={val} onChange={e => { set(e.target.value); setResult(null) }} className="input appearance-none">
+              <option value="">Select a document…</option>
+              {files.filter(f => f.id !== other).map(f => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+        ))}
       </div>
 
-      <button onClick={compare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
-        {comparing ? <><Loader2 size={13} className="animate-spin" /> Comparing…</> : <><GitCompare size={13} /> Compare Documents</>}
+      <button onClick={runCompare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
+        {comparing ? <><Loader2 size={13} className="animate-spin" />Comparing…</> : <><GitCompare size={13} />Run Comparison</>}
       </button>
 
       {error && (
-        <div className="text-xs px-3 py-2" style={{
-          color: '#f87171', backgroundColor: 'rgba(248,113,113,0.07)',
-          border: '1px solid rgba(248,113,113,0.2)', fontFamily: 'var(--font-mono)'
-        }}>{error}</div>
+        <div className="px-4 py-3 text-xs" style={{ color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', ...mono }}>
+          ✖ {error}
+        </div>
       )}
 
-      {result ? (
+      {!result && files.length < 2 && (
+        <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
+          <GitCompare size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
+          <p style={{ ...mono, fontSize: '0.68rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>UPLOAD AT LEAST 2 DOCUMENTS</p>
+        </div>
+      )}
+
+      {result && (
         <div style={{ border: '1px solid var(--border)' }}>
-          <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
-            <span className="text-xs px-2 py-0.5" style={{ border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{result.doc1_name}</span>
-            <GitCompare size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
-            <span className="text-xs px-2 py-0.5" style={{ border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{result.doc2_name}</span>
+          {/* Doc header */}
+          <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+            <span style={{ ...mono, fontSize: '0.63rem', color: 'var(--text-primary)', border: '1px solid var(--border)', padding: '2px 8px' }}>{result.doc1_name}</span>
+            <GitCompare size={11} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+            <span style={{ ...mono, fontSize: '0.63rem', color: 'var(--text-primary)', border: '1px solid var(--border)', padding: '2px 8px' }}>{result.doc2_name}</span>
           </div>
-          <div className="p-6 text-sm leading-relaxed prose prose-sm max-w-none" style={{ backgroundColor: 'var(--bg)', color: 'var(--text-primary)' }}>
-            <ReactMarkdown>{result.result}</ReactMarkdown>
-          </div>
+
+          {/* Summary */}
+          {result.summary && (
+            <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--border)', borderLeft: '3px solid var(--accent)' }}>
+              <p style={{ ...mono, fontSize: '0.55rem', letterSpacing: '0.15em', color: 'var(--accent)', marginBottom: 8 }}>EXECUTIVE SUMMARY</p>
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>{result.summary}</p>
+            </div>
+          )}
+
+          {/* Direct conflicts */}
+          {result.conflicts.length > 0 && (
+            <div style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                <span style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: '#ef4444' }}>DIRECT CONFLICTS</span>
+                <span style={{ ...mono, fontSize: '0.58rem', color: '#ef4444', border: '1px solid rgba(239,68,68,0.35)', padding: '0 6px' }}>{result.conflicts.length}</span>
+              </div>
+              <div>
+                {result.conflicts.map((c, i) => (
+                  <div key={i} className="p-5 space-y-4" style={{ borderBottom: i < result.conflicts.length - 1 ? '1px solid var(--border)' : undefined }}>
+                    <div className="flex items-center gap-3">
+                      <span style={{ ...mono, fontSize: '0.63rem', color: '#ef4444' }}>{String(i + 1).padStart(2, '0')}</span>
+                      <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{c.title}</span>
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
+                      <div className="p-4" style={{ backgroundColor: 'var(--bg)' }}>
+                        <p style={{ ...mono, fontSize: '0.53rem', letterSpacing: '0.1em', color: 'var(--text-secondary)', marginBottom: 6 }}>DOC A — {result.doc1_name}</p>
+                        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-primary)', fontStyle: 'italic' }}>"{c.doc_a}"</p>
+                      </div>
+                      <div className="p-4" style={{ backgroundColor: 'var(--bg)' }}>
+                        <p style={{ ...mono, fontSize: '0.53rem', letterSpacing: '0.1em', color: 'var(--text-secondary)', marginBottom: 6 }}>DOC B — {result.doc2_name}</p>
+                        <p className="text-xs leading-relaxed" style={{ color: 'var(--text-primary)', fontStyle: 'italic' }}>"{c.doc_b}"</p>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 text-xs">
+                      <p style={{ color: 'var(--text-secondary)' }}>
+                        <span style={{ ...mono, fontSize: '0.53rem', letterSpacing: '0.08em', color: '#ef4444' }}>IMPACT / </span>{c.impact}
+                      </p>
+                      <p style={{ color: 'var(--text-secondary)' }}>
+                        <span style={{ ...mono, fontSize: '0.53rem', letterSpacing: '0.08em', color: 'var(--accent)' }}>→ ACTION / </span>{c.recommendation}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Scope gaps */}
+          {result.gaps.length > 0 && (
+            <div style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                <span style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: '#f97316' }}>SCOPE GAPS</span>
+              </div>
+              <div className="p-5 space-y-2.5">
+                {result.gaps.map((g, i) => (
+                  <div key={i} className="flex items-start gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <span style={{ ...mono, fontSize: '0.6rem', color: '#f97316', flexShrink: 0 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <span>{g}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Agreements */}
+          {result.agreements.length > 0 && (
+            <div style={{ borderBottom: '1px solid var(--border)' }}>
+              <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                <span style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: '#4ade80' }}>AGREEMENTS</span>
+              </div>
+              <div className="p-5 space-y-2.5">
+                {result.agreements.map((a, i) => (
+                  <div key={i} className="flex items-start gap-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
+                    <CheckCircle2 size={11} style={{ color: '#4ade80', flexShrink: 0, marginTop: 1 }} />
+                    <span>{a}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Top risks */}
+          {result.risks.length > 0 && (
+            <div>
+              <div className="px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+                <span style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.12em', color: 'var(--accent)' }}>TOP RISKS</span>
+              </div>
+              <div>
+                {result.risks.map((r, i) => (
+                  <div key={i} className="flex items-start gap-4 px-5 py-4" style={{ borderBottom: i < result.risks.length - 1 ? '1px solid var(--border)' : undefined }}>
+                    <span style={{ ...mono, fontSize: '0.68rem', color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}>{String(i + 1).padStart(2, '0')}</span>
+                    <div className="space-y-1">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{r.title}</p>
+                      <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{r.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      ) : files.length < 2 ? (
-        <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
-          <GitCompare size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Upload at least 2 files to compare them</p>
-        </div>
-      ) : null}
+      )}
     </div>
   )
 }

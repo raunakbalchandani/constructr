@@ -101,6 +101,38 @@ export interface ChatMessage {
   created_at: string
 }
 
+export interface Conflict {
+  id: string
+  severity: 'high' | 'medium' | 'low'
+  title: string
+  description: string
+  resolution: string
+  documents: string[]
+}
+
+export interface CompareConflict {
+  title: string
+  doc_a: string
+  doc_b: string
+  impact: string
+  recommendation: string
+}
+
+export interface CompareRisk {
+  title: string
+  description: string
+}
+
+export interface CompareResult {
+  summary: string
+  conflicts: CompareConflict[]
+  gaps: string[]
+  agreements: string[]
+  risks: CompareRisk[]
+  doc1_name: string
+  doc2_name: string
+}
+
 export const chat = {
   history: (projectId: number) =>
     request<ChatMessage[]>(`/projects/${projectId}/chat`),
@@ -109,6 +141,14 @@ export const chat = {
       method: 'POST',
       body: JSON.stringify({ project_id: projectId, message, model }),
     }),
-  conflicts: (projectId: number) =>
-    request<{ conflicts: unknown[] }>(`/projects/${projectId}/conflicts`, { method: 'POST' }),
+  conflicts: (projectId: number, docIds?: number[]) =>
+    request<Conflict[]>(`/projects/${projectId}/conflicts`, {
+      method: 'POST',
+      body: JSON.stringify({ doc_ids: docIds ?? null }),
+    }),
+  compare: (projectId: number, docId1: number, docId2: number) =>
+    request<CompareResult>(`/projects/${projectId}/compare`, {
+      method: 'POST',
+      body: JSON.stringify({ doc_id_1: docId1, doc_id_2: docId2 }),
+    }),
 }

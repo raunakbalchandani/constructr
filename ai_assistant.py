@@ -745,106 +745,144 @@ Answer using the documents where relevant. Where drawings or images are provided
         except Exception as e:
             return self._handle_api_error(e)
 
-    def find_conflicts(self) -> str:
+    def find_conflicts(self) -> list:
+        """Return a list of conflict dicts: {title, severity, description, resolution, documents}."""
         if len(self.documents) < 2:
-            return "Need at least 2 documents to analyze conflicts."
+            return []
 
         context = self._build_context(max_chars_per_doc=2500)
+        doc_names = [d['filename'] for d in self.documents]
 
-        prompt = f"""Review these construction documents and find every conflict, gap, and contradiction:
+        prompt = f"""You are reviewing construction project documents for conflicts, gaps, and contradictions.
 
+Documents under review:
 {context}
 
-Look for:
-- Spec conflicts (same item specified differently in two places)
-- Scope gaps (work that needs to happen but no one owns it)
+Find every conflict. Look for:
+- Spec conflicts (same item specified differently in two documents)
+- Scope gaps (work needed but unassigned)
 - Scope overlaps (same work assigned to multiple parties)
 - Dimension or quantity discrepancies
 - Timeline inconsistencies
 - Payment or commercial conflicts
 - Responsibility conflicts
 
-For each issue: name the documents involved, quote the conflicting language, say why it's a problem, and suggest how to resolve it.
+Return ONLY a JSON array. Each element must be:
+{{
+  "title": "Short conflict title (max 80 chars)",
+  "severity": "high" | "medium" | "low",
+  "description": "What the conflict is, quoting the specific conflicting language from each document",
+  "resolution": "Concrete recommendation to resolve this",
+  "documents": ["exact filename 1", "exact filename 2"]
+}}
 
-Rank conflicts by severity. Lead with the ones that will cause change orders or delays if not resolved."""
+Severity guide:
+- high: will cause change orders, delays, or legal disputes if unresolved
+- medium: needs resolution before construction proceeds
+- low: minor discrepancy, worth noting but not urgent
+
+Document filenames available: {doc_names}
+
+Return ONLY the JSON array, no markdown, no explanation."""
 
         try:
-            return self._complete(
+            import json
+            raw = self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=2000,
-                temperature=0.3,
+                max_tokens=3000,
+                temperature=0.2,
             )
+            raw = raw.strip()
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw = parts[1] if len(parts) > 1 else raw
+                if raw.lower().startswith("json"):
+                    raw = raw[4:]
+            raw = raw.strip()
+            conflicts = json.loads(raw)
+            if isinstance(conflicts, list):
+                # Sort: high → medium → low
+                order = {"high": 0, "medium": 1, "low": 2}
+                conflicts.sort(key=lambda c: order.get(c.get("severity", "medium"), 1))
+                return conflicts
         except Exception as e:
-            return self._handle_api_error(e)
+            logger.warning("find_conflicts: JSON parse failed (%s) — returning empty", e)
+        return []
 
-    def compare_documents(self, doc1_idx: int, doc2_idx: int, comparison_type: str = "conflicts") -> str:
+    def compare_documents(self, doc1_idx: int, doc2_idx: int, comparison_type: str = "conflicts") -> dict:
         if doc1_idx >= len(self.documents) or doc2_idx >= len(self.documents):
-            return "Document not found."
+            return {"summary": "Document not found.", "conflicts": [], "gaps": [], "agreements": [], "risks": []}
         if doc1_idx == doc2_idx:
-            return "Please select two different documents to compare."
+            return {"summary": "Select two different documents.", "conflicts": [], "gaps": [], "agreements": [], "risks": []}
 
         doc1 = self.documents[doc1_idx]
         doc2 = self.documents[doc2_idx]
 
-        if comparison_type == "conflicts":
-            prompt = f"""Compare these two documents and identify all conflicts and discrepancies:
+        prompt = f"""Compare these two project documents.
 
-DOCUMENT 1: {doc1['filename']} ({doc1['document_type']})
+**{doc1['filename']}** ({doc1['document_type']}, {doc1['word_count']:,} words)
 {doc1['text_content'][:4000]}
 
-DOCUMENT 2: {doc2['filename']} ({doc2['document_type']})
+---
+
+**{doc2['filename']}** ({doc2['document_type']}, {doc2['word_count']:,} words)
 {doc2['text_content'][:4000]}
 
-For each conflict:
-1. Quote the conflicting information from each document
-2. Explain why it's a conflict
-3. Recommend which document should take precedence
-4. Suggest how to resolve"""
-        elif comparison_type == "similarities":
-            prompt = f"""Analyze these two documents and identify what they have in common:
+---
 
-DOCUMENT 1: {doc1['filename']} ({doc1['document_type']})
-{doc1['text_content'][:4000]}
+Return ONLY a JSON object with this exact structure:
+{{
+  "summary": "One concise paragraph on how these documents relate and whether they are compatible.",
+  "conflicts": [
+    {{
+      "title": "Short conflict title (max 60 chars)",
+      "doc_a": "Exact quote or key text from {doc1['filename']}",
+      "doc_b": "Exact quote or key text from {doc2['filename']}",
+      "impact": "What happens if this conflict is unresolved",
+      "recommendation": "Which takes precedence and what action to take"
+    }}
+  ],
+  "gaps": ["Work or obligation in one doc but not the other — be specific, max 5 items"],
+  "agreements": ["Key area where both documents agree or align, max 5 items"],
+  "risks": [
+    {{
+      "title": "Risk title (max 50 chars)",
+      "description": "What a project manager must address, and how"
+    }}
+  ]
+}}
 
-DOCUMENT 2: {doc2['filename']} ({doc2['document_type']})
-{doc2['text_content'][:4000]}
-
-Identify:
-1. Common parties or stakeholders
-2. Shared scope items
-3. Related dates and timelines
-4. Connected financial terms
-5. How the documents complement each other"""
-        else:
-            prompt = f"""Analyze the relationship between these two documents:
-
-DOCUMENT 1: {doc1['filename']} ({doc1['document_type']})
-{doc1['text_content'][:4000]}
-
-DOCUMENT 2: {doc2['filename']} ({doc2['document_type']})
-{doc2['text_content'][:4000]}
-
-Explain:
-1. How do these documents relate to each other?
-2. Does one reference or depend on the other?
-3. What is the hierarchy between them?
-4. Are there cross-references?
-5. How should they be used together?"""
+Return ONLY the JSON. No markdown fences, no explanation."""
 
         try:
-            return self._complete(
+            import json
+            raw = self._complete(
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=1500,
-                temperature=0.3,
+                max_tokens=2500,
+                temperature=0.2,
             )
+            raw = raw.strip()
+            if raw.startswith("```"):
+                parts = raw.split("```")
+                raw = parts[1] if len(parts) > 1 else raw
+                if raw.lower().startswith("json"):
+                    raw = raw[4:]
+            raw = raw.strip()
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
         except Exception as e:
-            return self._handle_api_error(e)
+            logger.warning("compare_documents: JSON parse failed (%s)", e)
+        return {
+            "summary": "Comparison completed but could not be structured. Please try again.",
+            "conflicts": [], "gaps": [], "agreements": [], "risks": []
+        }
 
     def extract_key_info(self, info_type: str) -> str:
         if not self.documents:
