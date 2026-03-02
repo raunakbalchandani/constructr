@@ -11,7 +11,7 @@ import {
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -708,7 +708,7 @@ function renderUserMessage(content: string) {
   )
 }
 
-function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange, threads, currentThreadId, onThreadSelect, onNewThread, onDeleteThread }: {
+function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, activeModel, onModelChange, threads, currentThreadId, onThreadSelect, onNewThread, onDeleteThread, onRenameThread }: {
   files: UploadedFile[]; currentProject: Project | null
   messages: Message[]; isLoading: boolean
   onSendMessage: (msg: string, referencedChatId?: number, useMemory?: boolean) => Promise<void>
@@ -719,6 +719,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
   onThreadSelect: (id: number) => void
   onNewThread: () => Promise<void>
   onDeleteThread: (id: number) => Promise<void>
+  onRenameThread: (id: number, title: string) => Promise<void>
 }) {
   const [input, setInput] = useState('')
   const [modelOpen, setModelOpen] = useState(false)
@@ -726,6 +727,9 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
   const [newThreadLoading, setNewThreadLoading] = useState(false)
   const [memoryOn, setMemoryOn] = useState(true)
   const [pendingRefChatId, setPendingRefChatId] = useState<number | null>(null)
+  const [renamingId, setRenamingId] = useState<number | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const renameInputRef = useRef<HTMLInputElement>(null)
   const [mentionOpen, setMentionOpen] = useState(false)
   const [mentionQuery, setMentionQuery] = useState('')
   const [mentionStart, setMentionStart] = useState(0)
@@ -839,21 +843,62 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
                       onMouseEnter={(e) => { if (t.id !== currentThreadId) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}
                       onMouseLeave={(e) => { if (t.id !== currentThreadId) (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}
                     >
-                      <button className="flex-1 flex items-center justify-between px-3 py-2.5 text-left"
-                        onClick={() => { onThreadSelect(t.id); setThreadOpen(false) }}>
-                        <span className="text-xs" style={{ fontFamily: 'var(--font-mono)', color: t.id === currentThreadId ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{t.title ?? `Chat ${t.id}`}</span>
-                        <span className="text-xs ml-2" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{t.message_count}</span>
-                      </button>
-                      <button
-                        className="opacity-0 group-hover:opacity-100 px-2 py-2.5 transition-opacity"
-                        style={{ color: 'var(--text-secondary)' }}
-                        title="Delete chat"
-                        onClick={async (e) => { e.stopPropagation(); setThreadOpen(false); await onDeleteThread(t.id) }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}
-                      >
-                        <X size={10} />
-                      </button>
+                      {renamingId === t.id ? (
+                        <form className="flex-1 flex items-center gap-1 px-2 py-1.5"
+                          onSubmit={async (e) => {
+                            e.preventDefault()
+                            if (renameValue.trim()) await onRenameThread(t.id, renameValue.trim())
+                            setRenamingId(null)
+                          }}>
+                          <input
+                            ref={renameInputRef}
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Escape') setRenamingId(null) }}
+                            onBlur={() => setRenamingId(null)}
+                            className="flex-1 bg-transparent text-xs px-1 py-0.5 outline-none"
+                            style={{
+                              fontFamily: 'var(--font-mono)',
+                              color: 'var(--text-primary)',
+                              border: '1px solid var(--accent)',
+                            }}
+                            autoFocus
+                          />
+                          <button type="submit" style={{ color: 'var(--accent)' }}>
+                            <Check size={10} />
+                          </button>
+                        </form>
+                      ) : (
+                        <button className="flex-1 flex items-center justify-between px-3 py-2.5 text-left"
+                          onClick={() => { onThreadSelect(t.id); setThreadOpen(false) }}>
+                          <span className="text-xs truncate" style={{ fontFamily: 'var(--font-mono)', color: t.id === currentThreadId ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{t.title ?? `Chat ${t.id}`}</span>
+                          <span className="text-xs ml-2 flex-shrink-0" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>{t.message_count}</span>
+                        </button>
+                      )}
+                      {renamingId !== t.id && (
+                        <>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 px-1.5 py-2.5 transition-opacity"
+                            style={{ color: 'var(--text-secondary)' }}
+                            title="Rename chat"
+                            onClick={(e) => { e.stopPropagation(); setRenameValue(t.title ?? `Chat ${t.id}`); setRenamingId(t.id); setTimeout(() => renameInputRef.current?.select(), 0) }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}
+                          >
+                            <Pencil size={9} />
+                          </button>
+                          <button
+                            className="opacity-0 group-hover:opacity-100 px-1.5 py-2.5 transition-opacity"
+                            style={{ color: 'var(--text-secondary)' }}
+                            title="Delete chat"
+                            onClick={async (e) => { e.stopPropagation(); setThreadOpen(false); await onDeleteThread(t.id) }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}
+                          >
+                            <X size={9} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   ))}
                   <div style={{ borderTop: '1px solid var(--border)' }}>
@@ -1715,6 +1760,12 @@ export default function DashboardPage() {
     await loadChatHistory(chatId)
   }
 
+  const handleRenameThread = async (chatId: number, title: string) => {
+    if (!current) return
+    await api.chat.renameThread(parseInt(current.id), chatId, title)
+    setChatThreads((prev) => prev.map(t => t.id === chatId ? { ...t, title } : t))
+  }
+
   const handleDeleteThread = async (chatId: number) => {
     if (!current) return
     await api.chat.deleteThread(parseInt(current.id), chatId)
@@ -1796,7 +1847,7 @@ export default function DashboardPage() {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
-      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} />
+      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
