@@ -25,20 +25,29 @@ except ImportError:
     logger.warning("AI: vision_counter not available — YOLO/CV counting disabled")
 
 # System prompt for construction expertise
-SYSTEM_PROMPT = """You are Foreperson — an AI assistant built for project managers. You have deep expertise in construction: AIA contracts, CSI specs (all 50 divisions), subcontracts, RFI logs, shop drawings, pay apps, punch lists, site plans, structural drawings, MEP coordination, schedules, and budgets. You also answer general questions directly and competently.
+SYSTEM_PROMPT = """You are Foreperson — a sharp, experienced AI built for project managers. You think before you answer. You have deep expertise in construction (AIA contracts, CSI specs, RFIs, submittals, schedules, budgets, MEP, structural) and you're also broadly knowledgeable across any topic.
 
-How you respond:
-- Answer every question asked, whether it's construction-specific or general.
-- Match tone to the question: simple question → short direct answer; complex analysis → structured breakdown.
-- Never open with "Certainly!", "Great question!", "Of course!" or any filler. Just answer.
-- Use bullet points or headers only when they genuinely help. Not for every response.
-- Numbers, dates, and dollar amounts should be specific. Vague ranges are useless.
-- When something is a risk, a conflict, or a red flag, say so clearly — don't soften it.
-- When referencing an uploaded document, cite it by name.
-- If you don't know something or the documents don't cover it, say so plainly.
-- If a COMPUTER VISION RESULT is provided in the prompt, cite it as authoritative — do not contradict it.
+How you think and respond:
+- Work through the question in your head before writing. Don't just pattern-match to a template.
+- If asked about yourself: say what you are and what you can help with. Keep it natural and brief. Do NOT list document contents or project context.
+- If asked a general question unrelated to construction or documents: answer it from real knowledge, like a smart person would.
+- If asked about uploaded documents: dig into them, cite by filename, be specific.
+- Match tone: casual → casual, technical → precise, frustrated → direct and calm.
+- Never open with filler ("Sure!", "Great question!", "Of course!", "Certainly!"). Just answer.
+- Don't pad. Don't repeat the question back. Don't summarize what you're about to do — just do it.
+- When something is a risk, conflict, or red flag: name it plainly.
+- If a COMPUTER VISION RESULT is in the prompt, treat it as authoritative. Don't contradict it.
+- Numbers, dates, dollar amounts: be specific. Vague is useless."""
 
-You are talking to people who have no patience for fluff. Be direct and useful."""
+# Questions that should bypass document context entirely
+_CONVERSATIONAL_PREFIXES = (
+    "who are you", "what are you", "tell me about yourself",
+    "what can you do", "what do you do", "how are you",
+    "hello", "hi ", "hey ", "good morning", "good afternoon", "good evening",
+    "introduce yourself", "what's your name", "whats your name",
+    "what is your name", "are you an ai", "are you a bot",
+    "what's up", "whats up", "sup",
+)
 
 
 def _is_quota_error(e: Exception) -> bool:
@@ -672,11 +681,25 @@ Brief description of the document's purpose
         msgs.append({"role": "user", "content": prompt})
         return msgs
 
+    def _is_conversational(self, question: str) -> bool:
+        """Return True if this question should bypass document context."""
+        q = question.lower().strip().rstrip("?! ")
+        return any(q == p.strip() or q.startswith(p) for p in _CONVERSATIONAL_PREFIXES)
+
     def ask_question(self, question: str, history: list = None, project_memory: list = None) -> str:
-        """Answer a construction question, optionally grounded in uploaded documents."""
+        """Answer any question, routing to doc-grounded or general path as appropriate."""
         try:
+            system = self._build_system_prompt(project_memory)
+
+            # Conversational / identity questions — skip document context entirely
+            if self._is_conversational(question):
+                return self._complete(
+                    messages=self._build_messages(system, question, history),
+                    max_tokens=500,
+                    temperature=0.7,
+                )
+
             if self.documents:
-                # Parse @mentions to prioritize specific docs / search for entities
                 mentioned_docs, search_terms = self._parse_mentions(question)
 
                 if mentioned_docs:
@@ -684,9 +707,8 @@ Brief description of the document's purpose
                     focus = (
                         f"The user specifically referenced: "
                         f"{', '.join(d['filename'] for d in mentioned_docs)}. "
-                        "Prioritize those documents in your answer."
+                        "Prioritize those documents."
                     )
-                    # Vision: try mentioned docs first, then all docs if under limit
                     images_by_doc = self._collect_visual_images(docs=mentioned_docs)
                     if len(images_by_doc) < MAX_IMAGES_PER_REQUEST:
                         remaining = [d for d in self.documents if d not in mentioned_docs]
@@ -700,47 +722,41 @@ Brief description of the document's purpose
                 entity_note = ""
                 if search_terms:
                     entity_note = (
-                        f"\nThe user also referenced: {', '.join('@' + t for t in search_terms)}. "
-                        "Search all documents for mentions of these terms and include relevant findings."
+                        f"\nThe user referenced: {', '.join('@' + t for t in search_terms)}. "
+                        "Find relevant mentions in the documents."
                     )
 
                 cv_note = self._run_vision_counter(images_by_doc, question)
 
-                prompt = f"""{cv_note}Question: {question}
+                prompt = f"""{cv_note}{question}
 {focus}{entity_note}
 
 Project documents:
 {context}
 
-Answer using the documents where relevant. Where drawings or images are provided, examine them carefully — look for callouts, annotations, colored markings, dimensions, sheet references, symbols, and spatial relationships. If a COMPUTER VISION RESULT is shown above, cite it as the authoritative count — do not contradict it or guess your own count. If the question isn't covered by the documents, answer from your expertise. Be direct."""
+Use the documents if the question relates to them. If it doesn't, answer from your knowledge and ignore the document context. For drawings/images: look for callouts, dimensions, annotations, symbols. If a COMPUTER VISION RESULT is above, it is authoritative — cite it."""
 
                 if images_by_doc:
                     try:
                         return self._complete_with_vision(
                             prompt, images_by_doc,
                             history=history,
-                            system_prompt=self._build_system_prompt(project_memory),
-                            max_tokens=2000, temperature=0.4
+                            system_prompt=system,
+                            max_tokens=2000, temperature=0.5
                         )
                     except Exception as e:
-                        logger.warning(
-                            "Vision path failed (%s); falling back to text-only.", e
-                        )
+                        logger.warning("Vision path failed (%s); falling back to text-only.", e)
 
                 return self._complete(
-                    messages=self._build_messages(self._build_system_prompt(project_memory), prompt, history),
+                    messages=self._build_messages(system, prompt, history),
                     max_tokens=2000,
-                    temperature=0.4,
+                    temperature=0.5,
                 )
             else:
                 return self._complete(
-                    messages=self._build_messages(
-                        self._build_system_prompt(project_memory),
-                        f"Question: {question}\n\nAnswer from your construction expertise. Be direct and specific.",
-                        history,
-                    ),
+                    messages=self._build_messages(system, question, history),
                     max_tokens=2000,
-                    temperature=0.4,
+                    temperature=0.6,
                 )
         except Exception as e:
             return self._handle_api_error(e)
