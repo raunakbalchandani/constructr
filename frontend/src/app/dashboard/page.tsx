@@ -985,15 +985,27 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 // ─── Conflicts Tab ──────────────────────────────────────────
 function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; currentProject: Project | null }) {
   const [analyzing, setAnalyzing] = useState(false)
-  const [conflicts, setConflicts] = useState<any[]>([])
+  const [conflicts, setConflicts] = useState<api.Conflict[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
 
+  const toggleFile = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
   const analyze = async () => {
-    if (!currentProject || files.length < 2) { setError('Need at least 2 files for conflict analysis'); return }
+    if (!currentProject) return
+    const targets = selectedIds.size > 0 ? files.filter(f => selectedIds.has(f.id)) : files
+    if (targets.length < 2) { setError('Select at least 2 files to analyze'); return }
     setAnalyzing(true); setError('')
     try {
-      const data = await api.chat.conflicts(parseInt(currentProject.id))
-      setConflicts(data.conflicts ?? [])
+      const docIds = selectedIds.size > 0 ? Array.from(selectedIds).map(id => parseInt(id)) : undefined
+      const data = await api.chat.conflicts(parseInt(currentProject.id), docIds)
+      setConflicts(Array.isArray(data) ? data : [])
     } catch (err: any) {
       setError(err.message ?? 'Analysis failed.')
     } finally { setAnalyzing(false) }
@@ -1005,8 +1017,8 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
   const lowCount = bySeverity('low').length
 
   const sevStyle: Record<string, { bg: string; text: string; border: string }> = {
-    high:   { bg: 'rgba(248,113,113,0.06)', text: '#f87171', border: 'rgba(248,113,113,0.2)' },
-    medium: { bg: 'rgba(245,200,0,0.06)',   text: 'var(--accent)', border: 'rgba(245,200,0,0.2)' },
+    high:   { bg: 'rgba(248,113,113,0.06)', text: '#f87171', border: 'rgba(248,113,113,0.3)' },
+    medium: { bg: 'rgba(245,200,0,0.06)',   text: 'var(--accent)', border: 'rgba(245,200,0,0.3)' },
     low:    { bg: 'rgba(96,165,250,0.06)',   text: '#60a5fa', border: 'rgba(96,165,250,0.2)' },
   }
 
@@ -1023,16 +1035,45 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
         </button>
       </div>
 
-      {/* Summary stats — only show after analysis */}
+      {/* File selector */}
+      {files.length >= 2 && (
+        <div style={{ border: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+          <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <p className="label-mono text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>
+              SELECT FILES TO ANALYZE — {selectedIds.size === 0 ? 'all files' : `${selectedIds.size} selected`}
+            </p>
+          </div>
+          <div className="p-3 flex flex-wrap gap-2">
+            {files.map(f => {
+              const active = selectedIds.has(f.id)
+              return (
+                <button key={f.id} onClick={() => toggleFile(f.id)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '0.65rem',
+                    border: `1px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                    backgroundColor: active ? 'rgba(245,200,0,0.08)' : 'transparent',
+                    color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                  }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: active ? 'var(--accent)' : 'var(--border)', flexShrink: 0, display: 'inline-block' }} />
+                  {f.name}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Summary stats */}
       {conflicts.length > 0 && (
         <div className="grid grid-cols-3 gap-px" style={{ backgroundColor: 'var(--border)' }}>
           {[
-            { label: 'High Severity', count: highCount, color: '#f87171' },
+            { label: 'High', count: highCount, color: '#f87171' },
             { label: 'Medium', count: medCount, color: 'var(--accent)' },
             { label: 'Low', count: lowCount, color: '#60a5fa' },
           ].map(({ label, count, color }) => (
             <div key={label} className="p-5" style={{ backgroundColor: 'var(--card)' }}>
-              <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)' }}>{label}</p>
+              <p className="label-mono mb-1 text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{label} Severity</p>
               <p className="text-3xl font-black" style={{ fontFamily: 'var(--font-display)', color }}>{count}</p>
             </div>
           ))}
@@ -1054,28 +1095,41 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
       ) : conflicts.length === 0 && !analyzing ? (
         <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
           <AlertTriangle size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
-          <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
-            {files.length} files ready — click Run Analysis to scan for conflicts between drawings, specs, and contracts
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            {files.length} files ready — {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'all files'} will be scanned
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {conflicts.map((c) => {
             const s = sevStyle[c.severity] ?? sevStyle.medium
             return (
-              <div key={c.id} className="p-5" style={{ backgroundColor: s.bg, border: `1px solid ${s.border}` }}>
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
-                  <span className="text-xs px-2 py-0.5 flex-shrink-0"
-                    style={{ color: s.text, border: `1px solid ${s.border}`, fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.08em' }}>
+              <div key={c.id} style={{ border: `1px solid ${s.border}`, backgroundColor: s.bg }}>
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4 px-5 py-4"
+                  style={{ borderBottom: `1px solid ${s.border}` }}>
+                  <h3 className="font-semibold text-sm leading-snug" style={{ color: 'var(--text-primary)' }}>{c.title}</h3>
+                  <span className="flex-shrink-0 px-2 py-0.5"
+                    style={{ color: s.text, border: `1px solid ${s.border}`, fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.1em' }}>
                     {c.severity.toUpperCase()}
                   </span>
                 </div>
-                <p className="text-xs leading-relaxed mb-3" style={{ color: 'var(--text-secondary)' }}>{c.description}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {c.documents.map((doc: string, i: number) => (
-                    <span key={i} className="text-xs px-2 py-0.5"
-                      style={{ backgroundColor: 'var(--card)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>
+                {/* Description */}
+                <div className="px-5 py-3 text-xs leading-relaxed" style={{ color: 'var(--text-secondary)', borderBottom: `1px solid ${s.border}` }}>
+                  {c.description}
+                </div>
+                {/* Resolution */}
+                {c.resolution && (
+                  <div className="px-5 py-3 text-xs leading-relaxed" style={{ backgroundColor: 'rgba(0,0,0,0.15)' }}>
+                    <span style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.08em' }}>→ RESOLUTION: </span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{c.resolution}</span>
+                  </div>
+                )}
+                {/* Doc tags */}
+                <div className="px-5 py-3 flex flex-wrap gap-1.5">
+                  {c.documents.map((doc, i) => (
+                    <span key={i} className="px-2 py-0.5"
+                      style={{ backgroundColor: 'var(--bg)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', border: '1px solid var(--border)' }}>
                       {doc}
                     </span>
                   ))}
@@ -1090,20 +1144,22 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
 }
 
 // ─── Compare Tab ────────────────────────────────────────────
-function CompareTab({ files }: { files: UploadedFile[] }) {
+function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentProject: Project | null }) {
   const [f1, setF1] = useState('')
   const [f2, setF2] = useState('')
-  const [result, setResult] = useState<string | null>(null)
+  const [result, setResult] = useState<api.CompareResult | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [error, setError] = useState('')
 
   const compare = async () => {
-    if (!f1 || !f2) return
-    setComparing(true)
-    await new Promise((r) => setTimeout(r, 1600))
-    const n1 = files.find((f) => f.id === f1)?.name ?? 'File 1'
-    const n2 = files.find((f) => f.id === f2)?.name ?? 'File 2'
-    setResult(`## ${n1} vs ${n2}\n\n### Key Differences\n- Scope items differ between the two documents\n- Timeline specifications vary\n- Payment terms are defined differently\n\n### Similarities\n- Both reference the same project specifications\n- Identical insurance requirements`)
-    setComparing(false)
+    if (!f1 || !f2 || !currentProject) return
+    setComparing(true); setError('')
+    try {
+      const data = await api.chat.compare(parseInt(currentProject.id), parseInt(f1), parseInt(f2))
+      setResult(data)
+    } catch (err: any) {
+      setError(err.message ?? 'Comparison failed.')
+    } finally { setComparing(false) }
   }
 
   return (
@@ -1114,11 +1170,11 @@ function CompareTab({ files }: { files: UploadedFile[] }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-        {[{ val: f1, other: f2, set: setF1, label: 'First File' }, { val: f2, other: f1, set: setF2, label: 'Second File' }].map(
+        {[{ val: f1, other: f2, set: setF1, label: 'Document A' }, { val: f2, other: f1, set: setF2, label: 'Document B' }].map(
           ({ val, other, set, label }) => (
             <div key={label} className="p-5" style={{ backgroundColor: 'var(--card)' }}>
-              <label className="block label-mono mb-2" style={{ fontFamily: 'var(--font-mono)' }}>{label}</label>
-              <select value={val} onChange={(e) => set(e.target.value)} className="input appearance-none">
+              <label className="block label-mono mb-2 text-xs" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{label}</label>
+              <select value={val} onChange={(e) => { set(e.target.value); setResult(null) }} className="input appearance-none">
                 <option value="">Select a file…</option>
                 {files.filter((f) => f.id !== other).map((f) => (
                   <option key={f.id} value={f.id}>{f.name}</option>
@@ -1129,13 +1185,27 @@ function CompareTab({ files }: { files: UploadedFile[] }) {
         )}
       </div>
 
-      <button onClick={compare} disabled={!f1 || !f2 || comparing} className="btn-primary flex items-center gap-2">
-        {comparing ? <><Loader2 size={13} className="animate-spin" /> Comparing…</> : <><GitCompare size={13} /> Compare Files</>}
+      <button onClick={compare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
+        {comparing ? <><Loader2 size={13} className="animate-spin" /> Comparing…</> : <><GitCompare size={13} /> Compare Documents</>}
       </button>
 
+      {error && (
+        <div className="text-xs px-3 py-2" style={{
+          color: '#f87171', backgroundColor: 'rgba(248,113,113,0.07)',
+          border: '1px solid rgba(248,113,113,0.2)', fontFamily: 'var(--font-mono)'
+        }}>{error}</div>
+      )}
+
       {result ? (
-        <div className="p-6 text-sm leading-relaxed" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}>
-          <ReactMarkdown>{result}</ReactMarkdown>
+        <div style={{ border: '1px solid var(--border)' }}>
+          <div className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
+            <span className="text-xs px-2 py-0.5" style={{ border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{result.doc1_name}</span>
+            <GitCompare size={12} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+            <span className="text-xs px-2 py-0.5" style={{ border: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{result.doc2_name}</span>
+          </div>
+          <div className="p-6 text-sm leading-relaxed prose prose-sm max-w-none" style={{ backgroundColor: 'var(--bg)', color: 'var(--text-primary)' }}>
+            <ReactMarkdown>{result.result}</ReactMarkdown>
+          </div>
         </div>
       ) : files.length < 2 ? (
         <div className="text-center py-16" style={{ border: '1px solid var(--border)' }}>
@@ -1441,7 +1511,7 @@ export default function DashboardPage() {
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
-      case 'compare':   return <CompareTab files={files} />
+      case 'compare':   return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
       default:          return <OverviewTab project={current} files={files} setTab={changeTab} />
     }
