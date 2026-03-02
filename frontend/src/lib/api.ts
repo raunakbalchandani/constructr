@@ -154,6 +154,11 @@ export const chat = {
     request<ChatHistory>(`/projects/${projectId}/chats`, { method: 'POST' }),
   history: (projectId: number, chatId?: number) =>
     request<ChatHistory>(`/projects/${projectId}/chat${chatId ? `?chat_id=${chatId}` : ''}`),
+  renameThread: (projectId: number, chatId: number, title: string) =>
+    request<{ id: number; title: string }>(`/projects/${projectId}/chats/${chatId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   deleteThread: (projectId: number, chatId: number) =>
     request<void>(`/projects/${projectId}/chats/${chatId}`, { method: 'DELETE' }),
   send: (projectId: number, message: string, model?: string, chatId?: number, useMemory = true, referencedChatId?: number) =>

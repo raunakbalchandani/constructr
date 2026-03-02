@@ -781,6 +781,29 @@ async def create_chat_thread(
     return {"id": chat.id, "title": chat.title, "messages": [], "created_at": chat.created_at}
 
 
+@app.patch("/projects/{project_id}/chats/{chat_id}")
+async def rename_chat_thread(
+    project_id: int,
+    chat_id: int,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Rename a chat thread."""
+    chat = db.query(Chat).filter(
+        Chat.id == chat_id,
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat thread not found")
+    title = (body.get("title") or "").strip()
+    if title:
+        chat.title = title
+        db.commit()
+    return {"id": chat.id, "title": chat.title}
+
+
 @app.delete("/projects/{project_id}/chats/{chat_id}")
 async def delete_chat_thread(
     project_id: int,
