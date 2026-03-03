@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from 'next-themes'
@@ -530,9 +530,10 @@ const FILTER_OPTIONS = [
   { value: 'punch_list', label: 'Punch Lists' },
 ]
 
-function FilesTab({ files, onUpload, onDelete, isUploading }: {
+function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuery, searchResults }: {
   files: UploadedFile[]; onUpload: (f: FileList) => void
   onDelete: (id: string) => void; isUploading: boolean
+  onSearch: (q: string) => void; searchQuery: string; searchResults: api.SearchResult[] | null
 }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
@@ -606,6 +607,57 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
               </button>
             )
           })}
+        </div>
+      )}
+
+      {/* Content search bar */}
+      <div className="flex items-center gap-2 mb-3" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+        <Search size={13} className="ml-3 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+        <input
+          type="text"
+          placeholder="Search document content…"
+          value={searchQuery}
+          onChange={(e) => {
+            const val = e.target.value
+            clearTimeout((window as Window & { __searchTimeout?: number }).__searchTimeout)
+            ;(window as Window & { __searchTimeout?: number }).__searchTimeout = window.setTimeout(() => onSearch(val), 400) as unknown as number
+          }}
+          className="flex-1 py-2 px-1 text-sm bg-transparent outline-none"
+          style={{ color: 'var(--text-primary)', fontSize: '16px' }}
+        />
+        {searchQuery && (
+          <button onClick={() => onSearch('')} className="mr-2 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {/* Content search results */}
+      {searchResults !== null && (
+        <div className="space-y-2 mb-4">
+          {searchResults.length === 0
+            ? <p className="text-sm py-2 px-1" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                No results for &quot;{searchQuery}&quot;
+              </p>
+            : searchResults.map((r) => {
+                const c = cat(r.document_type)
+                return (
+                  <div key={r.doc_id} className="p-3" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{r.filename}</span>
+                      <span className="text-xs px-1.5 py-0.5 flex-shrink-0"
+                        style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
+                        {c.label.toUpperCase()}
+                      </span>
+                      <span className="text-xs ml-auto flex-shrink-0" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                        {r.match_count} match{r.match_count !== 1 ? 'es' : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{r.snippet}</p>
+                  </div>
+                )
+              })
+          }
         </div>
       )}
 
@@ -1823,6 +1875,8 @@ export default function DashboardPage() {
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
   const [projectAnalytics, setProjectAnalytics] = useState<api.ProjectAnalytics | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<api.SearchResult[] | null>(null)
 
   useEffect(() => { loadProjects() }, [])
   useEffect(() => {
@@ -1846,6 +1900,8 @@ export default function DashboardPage() {
       setChatThreads([])
       setCurrentChatId(null)
       setProjectAnalytics(null)
+      setSearchQuery('')
+      setSearchResults(null)
       api.analytics.get(parseInt(current.id)).then(setProjectAnalytics).catch(() => {})
     } else {
       setFiles([])
@@ -1853,6 +1909,8 @@ export default function DashboardPage() {
       setChatThreads([])
       setCurrentChatId(null)
       setProjectAnalytics(null)
+      setSearchQuery('')
+      setSearchResults(null)
     }
   }, [current])
   useEffect(() => {
@@ -1998,6 +2056,15 @@ export default function DashboardPage() {
     } catch (e) { console.error(e) }
   }
 
+  const handleSearch = useCallback(async (q: string) => {
+    setSearchQuery(q)
+    if (!q.trim() || !current) { setSearchResults(null); return }
+    try {
+      const res = await api.documents.search(parseInt(current.id), q)
+      setSearchResults(res.results)
+    } catch { setSearchResults([]) }
+  }, [current])
+
   const handleSendMessage = async (msg: string, referencedChatId?: number, useMemory = true) => {
     if (!current) return
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: msg, timestamp: new Date() }
@@ -2018,7 +2085,7 @@ export default function DashboardPage() {
   const renderContent = () => {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
-      case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
+      case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />

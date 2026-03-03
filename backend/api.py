@@ -589,6 +589,55 @@ async def delete_document(
     return {"message": "Document deleted"}
 
 
+@app.get("/projects/{project_id}/search")
+async def search_documents(
+    project_id: int,
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Full-text search across document content in a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not q or len(q.strip()) < 2:
+        return {"results": []}
+
+    term = q.strip().lower()
+    docs = db.query(Document).filter(
+        Document.project_id == project_id,
+        Document.extracted_text.isnot(None)
+    ).all()
+
+    results = []
+    for doc in docs:
+        text = (doc.extracted_text or "").lower()
+        idx = text.find(term)
+        if idx == -1:
+            continue
+        start = max(0, idx - 80)
+        end = min(len(text), idx + len(term) + 80)
+        snippet = (doc.extracted_text or "")[start:end].strip()
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(doc.extracted_text or ""):
+            snippet = snippet + "…"
+        results.append({
+            "doc_id": doc.id,
+            "filename": doc.original_filename,
+            "document_type": doc.document_type or "unknown",
+            "snippet": snippet,
+            "match_count": text.count(term),
+        })
+
+    results.sort(key=lambda r: r["match_count"], reverse=True)
+    return {"results": results[:20]}
+
+
 # ============ Chat Routes ============
 
 def _extract_and_save_facts(

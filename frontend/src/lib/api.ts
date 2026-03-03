@@ -72,6 +72,14 @@ export interface Document {
   created_at: string
 }
 
+export interface SearchResult {
+  doc_id: number
+  filename: string
+  document_type: string
+  snippet: string
+  match_count: number
+}
+
 export const documents = {
   list: (projectId: number, page = 1, limit = 20) =>
     request<Document[]>(`/projects/${projectId}/documents?page=${page}&limit=${limit}`),
@@ -93,6 +101,8 @@ export const documents = {
   },
   delete: (projectId: number, documentId: number) =>
     request<void>(`/projects/${projectId}/documents/${documentId}`, { method: 'DELETE' }),
+  search: (projectId: number, q: string) =>
+    request<{ results: SearchResult[] }>(`/projects/${projectId}/search?q=${encodeURIComponent(q)}`),
 }
 
 export interface ProjectAnalytics {
