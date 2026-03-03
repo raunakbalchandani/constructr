@@ -678,7 +678,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           })}
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+        <div style={{ overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--border)' }}>
             <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
               style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
@@ -1078,7 +1078,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1" style={{ WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4 text-center px-4 py-8">
             <MessageSquare size={28} style={{ color: 'var(--accent)', opacity: 0.3 }} />
