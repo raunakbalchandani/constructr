@@ -11,7 +11,7 @@ import {
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -1423,9 +1423,21 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
           <p style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: 4 }}>// RISK REGISTER</p>
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Conflicts</h1>
         </div>
-        <button onClick={analyze} disabled={analyzing || files.length < 2} className="btn-primary flex items-center gap-2 flex-shrink-0">
-          {analyzing ? <><Loader2 size={13} className="animate-spin" />Scanning…</> : <><ShieldAlert size={13} />Run Scan</>}
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          {conflicts.length > 0 && (
+            <button
+              onClick={() => window.print()}
+              className="btn-ghost flex items-center gap-2 flex-shrink-0"
+              style={{ ...mono, fontSize: '0.65rem' }}
+            >
+              <Download size={12} />
+              EXPORT PDF
+            </button>
+          )}
+          <button onClick={analyze} disabled={analyzing || files.length < 2} className="btn-primary flex items-center gap-2 flex-shrink-0">
+            {analyzing ? <><Loader2 size={13} className="animate-spin" />Scanning…</> : <><ShieldAlert size={13} />Run Scan</>}
+          </button>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -1503,6 +1515,19 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
       ) : (
         /* Conflict cards */
         <div className="space-y-2">
+          {/* Print header — hidden normally, visible via @media print */}
+          <div id="print-header" style={{ display: 'none' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem', color: 'black' }}>
+              Conflict Analysis Report
+            </h1>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+              Project: {currentProject?.name} — {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} found
+            </p>
+            <hr style={{ margin: '1rem 0', borderColor: '#ccc' }} />
+          </div>
           {/* Status filter */}
           {conflicts.length > 0 && (
             <div className="flex items-center gap-2 mb-3">
@@ -1659,9 +1684,21 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
         ))}
       </div>
 
-      <button onClick={runCompare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
-        {comparing ? <><Loader2 size={13} className="animate-spin" />Comparing…</> : <><GitCompare size={13} />Run Comparison</>}
-      </button>
+      <div className="flex items-center gap-2 no-print">
+        <button onClick={runCompare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
+          {comparing ? <><Loader2 size={13} className="animate-spin" />Comparing…</> : <><GitCompare size={13} />Run Comparison</>}
+        </button>
+        {result && (
+          <button
+            onClick={() => window.print()}
+            className="btn-ghost flex items-center gap-2"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem' }}
+          >
+            <Download size={12} />
+            EXPORT PDF
+          </button>
+        )}
+      </div>
 
       {error && (
         <div className="px-4 py-3 text-xs" style={{ color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', ...mono }}>

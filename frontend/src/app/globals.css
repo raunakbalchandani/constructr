@@ -188,3 +188,55 @@ body {
     color: var(--accent);
   }
 }
+
+/* ─── Print / Export PDF ─────────────────────────────── */
+@media print {
+  /* Hide all interactive chrome */
+  aside,
+  header,
+  nav,
+  .no-print,
+  button,
+  input,
+  select,
+  textarea {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-family: Arial, sans-serif;
+  }
+
+  #print-header {
+    display: block !important;
+  }
+
+  /* Ensure print content is visible */
+  .print-content {
+    display: block !important;
+  }
+
+  /* Conflict cards */
+  .conflict-card-print {
+    break-inside: avoid;
+    border: 1px solid #ccc !important;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: white !important;
+    color: black !important;
+    page-break-inside: avoid;
+  }
+
+  /* General text overrides for print */
+  * {
+    color: black !important;
+    background: white !important;
+    border-color: #ccc !important;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+}
