@@ -210,6 +210,15 @@ class CompareResponse(BaseModel):
     doc2_name: str
 
 
+class ProjectAnalyticsResponse(BaseModel):
+    doc_count: int
+    total_words: int
+    type_breakdown: dict
+    chat_count: int
+    message_count: int
+    memory_fact_count: int
+
+
 # Initialize database on startup
 @app.on_event("startup")
 async def startup():
@@ -365,7 +374,7 @@ async def delete_project(
     return {"message": "Project deleted"}
 
 
-@app.get("/projects/{project_id}/analytics")
+@app.get("/projects/{project_id}/analytics", response_model=ProjectAnalyticsResponse)
 async def get_project_analytics(
     project_id: int,
     current_user: User = Depends(get_current_user),
@@ -397,7 +406,7 @@ async def get_project_analytics(
     message_count = (
         db.query(ChatMessage)
         .join(Chat, Chat.id == ChatMessage.chat_id)
-        .filter(Chat.project_id == project_id)
+        .filter(Chat.project_id == project_id, Chat.user_id == current_user.id)
         .count()
     )
 
