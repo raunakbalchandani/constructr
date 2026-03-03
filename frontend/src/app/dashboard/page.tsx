@@ -258,7 +258,12 @@ function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setC
               </div>
               <div className="space-y-px">
                 {projects.length === 0
-                  ? <p className="text-xs py-1 px-1" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>No projects</p>
+                  ? <div className="py-2 px-1 space-y-2">
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>No projects yet</p>
+                      <button onClick={onNew} className="text-xs underline" style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                        + Create first project →
+                      </button>
+                    </div>
                   : projects.map((p) => {
                     const isActive = current?.id === p.id
                     return (
@@ -586,11 +591,24 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
       </div>
 
       {/* File grid / list */}
-      {shown.length === 0 ? (
+      {files.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 space-y-3 text-center">
+          <Upload size={32} style={{ color: 'var(--text-secondary)', opacity: 0.4 }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>No documents yet</p>
+          <p className="text-xs max-w-xs" style={{ color: 'var(--text-secondary)' }}>
+            Upload contracts, specs, RFIs, drawings, or any construction document to get started.
+          </p>
+          <label className="btn-primary cursor-pointer text-xs" style={{ padding: '8px 16px' }}>
+            Upload Document
+            <input type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg" onChange={(e) => e.target.files && onUpload(e.target.files)} />
+          </label>
+        </div>
+      )}
+      {files.length > 0 && (shown.length === 0 ? (
         <div className="text-center py-14" style={{ border: '1px solid var(--border)' }}>
           <FileSearch size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {files.length === 0 ? 'Upload your first file to get started' : 'No files match your search'}
+            No files match your search
           </p>
         </div>
       ) : view === 'grid' ? (
@@ -714,7 +732,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
             )
           })}
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -1057,6 +1075,38 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center flex-1 space-y-4 text-center px-4 py-16">
+            <MessageSquare size={28} style={{ color: 'var(--accent)', opacity: 0.3 }} />
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ask Foreperson anything</p>
+            <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
+              {[
+                'Summarize all contracts',
+                'What are the key deadlines?',
+                'Find any scope conflicts',
+                'Who are the key parties?',
+              ].map((prompt) => (
+                <button key={prompt} onClick={() => onSendMessage(prompt, undefined, memoryOn)}
+                  className="text-xs px-3 py-2 text-left transition-colors"
+                  style={{
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    backgroundColor: 'transparent'
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'
+                    ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'
+                    ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+                  }}>
+                  {prompt} →
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id}>
             {msg.role === 'assistant' ? (
@@ -1199,6 +1249,7 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
   const [conflicts, setConflicts] = useState<api.Conflict[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
+  const [hasScanned, setHasScanned] = useState(false)
 
   const toggleFile = (id: string) => {
     setSelectedIds(prev => {
@@ -1212,14 +1263,14 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
     if (!currentProject) return
     const scope = selectedIds.size > 0 ? files.filter(f => selectedIds.has(f.id)) : files
     if (scope.length < 2) { setError('Select at least 2 files to analyze'); return }
-    setAnalyzing(true); setError('')
+    setAnalyzing(true); setError(''); setHasScanned(false)
     try {
       const docIds = selectedIds.size > 0 ? Array.from(selectedIds).map(id => parseInt(id)) : undefined
       const data = await api.chat.conflicts(parseInt(currentProject.id), docIds)
       setConflicts(Array.isArray(data) ? data : [])
     } catch (err: any) {
       setError(err.message ?? 'Analysis failed.')
-    } finally { setAnalyzing(false) }
+    } finally { setAnalyzing(false); setHasScanned(true) }
   }
 
   const high = conflicts.filter(c => c.severity === 'high')
@@ -1305,6 +1356,12 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
         <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
           <FileSearch size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
           <p style={{ ...mono, fontSize: '0.68rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>UPLOAD AT LEAST 2 DOCUMENTS</p>
+        </div>
+      ) : hasScanned && conflicts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 space-y-2 text-center">
+          <CheckCircle2 size={28} style={{ color: '#34d399' }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>No conflicts found</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Your documents appear to be consistent with each other.</p>
         </div>
       ) : conflicts.length === 0 && !analyzing ? (
         <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
