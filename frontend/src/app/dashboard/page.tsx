@@ -1548,7 +1548,7 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
           {visibleConflicts.map((c, i) => {
             const s = SEV[c.severity] ?? SEV.medium
             return (
-              <div key={c.id} style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
+              <div key={c.id} className="conflict-card-print" style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
                 {/* Number + title + badge */}
                 <div className="flex items-stretch" style={{ borderBottom: `1px solid ${s.border}` }}>
                   <div className="flex items-center justify-center px-4" style={{ borderRight: `1px solid ${s.border}`, minWidth: 52, backgroundColor: s.bg }}>
