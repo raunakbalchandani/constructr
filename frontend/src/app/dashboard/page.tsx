@@ -586,7 +586,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
           </button>
         </div>
         <input ref={inputRef} type="file" multiple
-          accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg,.jpeg"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
           className="hidden"
           onChange={(e) => { onUpload(e.target.files); e.target.value = '' }} />
       </div>
@@ -720,7 +720,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
             <input
               type="file"
               multiple
-              accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg,.jpeg"
+              accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
               className="hidden"
               onChange={(e) => { onUpload(e.target.files); e.target.value = '' }}
             />
@@ -1905,6 +1905,7 @@ export default function DashboardPage() {
     status: 'pending' | 'uploading' | 'done' | 'error'
     error?: string
   }>>([])
+  const uploadClearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
 
   useEffect(() => { loadProjects() }, [])
@@ -2065,6 +2066,8 @@ export default function DashboardPage() {
 
   const handleBulkUpload = async (files: FileList | null) => {
     if (!files || !files.length || !current) return
+    const projectId = parseInt(current.id)
+    const projectIdStr = current.id
     const fileArray = Array.from(files)
     const queue = fileArray.map(f => ({ name: f.name, status: 'pending' as const }))
     setUploadQueue(queue)
@@ -2074,7 +2077,7 @@ export default function DashboardPage() {
         idx === i ? { ...item, status: 'uploading' } : item
       ))
       try {
-        const doc = await api.documents.upload(parseInt(current.id), fileArray[i])
+        const doc = await api.documents.upload(projectId, fileArray[i])
         setFiles(prev => [{
           id: doc.id.toString(),
           name: doc.original_filename,
@@ -2084,7 +2087,7 @@ export default function DashboardPage() {
           parseQuality: doc.parse_quality ?? 'good',
         }, ...prev])
         setProjects(prev => prev.map(pr =>
-          pr.id === current.id ? { ...pr, fileCount: pr.fileCount + 1 } : pr
+          pr.id === projectIdStr ? { ...pr, fileCount: pr.fileCount + 1 } : pr
         ))
         setUploadQueue(prev => prev.map((item, idx) =>
           idx === i ? { ...item, status: 'done' } : item
@@ -2100,12 +2103,11 @@ export default function DashboardPage() {
     }
 
     // Refresh analytics after all uploads complete
-    if (current) {
-      api.analytics.get(parseInt(current.id)).then(setProjectAnalytics).catch(() => {})
-    }
+    api.analytics.get(projectId).then(setProjectAnalytics).catch(() => {})
 
     // Auto-clear queue after 4 seconds
-    setTimeout(() => setUploadQueue([]), 4000)
+    clearTimeout(uploadClearTimerRef.current)
+    uploadClearTimerRef.current = setTimeout(() => setUploadQueue([]), 4000)
   }
 
   const handleDeleteFile = async (id: string) => {
