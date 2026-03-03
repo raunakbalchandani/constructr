@@ -668,11 +668,11 @@ class ConstructionDocumentParser:
     def parse_document(self, file_path: str) -> Dict:
         fp = Path(file_path)
         if not fp.exists():
-            return {'error': 'File not found'}
+            return {'error': 'File not found', 'parse_quality': 'empty'}
 
         ext = fp.suffix.lower()
         if ext not in self.SUPPORTED:
-            return {'error': f'Unsupported file type: {ext}'}
+            return {'error': f'Unsupported file type: {ext}', 'parse_quality': 'empty'}
 
         if ext == '.pdf':
             text = _extract_pdf(str(fp))
@@ -686,13 +686,13 @@ class ConstructionDocumentParser:
             try:
                 text = fp.read_text(encoding='utf-8', errors='replace')
             except Exception as e:
-                return {'error': f'Could not read text file: {e}'}
+                return {'error': f'Could not read text file: {e}', 'parse_quality': 'empty'}
         elif ext in IMAGE_EXTENSIONS:
             text = extract_text_from_image(str(fp))
         elif ext in ('.dwg', '.dxf'):
             text = _extract_cad(str(fp))
         else:
-            return {'error': f'Unsupported file type: {ext}'}
+            return {'error': f'Unsupported file type: {ext}', 'parse_quality': 'empty'}
 
         doc_type = detect_document_type(text, fp.name)
 
@@ -710,7 +710,7 @@ class ConstructionDocumentParser:
             'document_type': doc_type,
             'text_content': text,
             'word_count': word_count,
-            'char_count': len(text),
+            'char_count': len(text or ''),
             'parse_quality': parse_quality,
         }
 

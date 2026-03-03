@@ -452,7 +452,11 @@ async def upload_document(
         mime_type=file_info["mime_type"],
         document_type=doc_type,
         extracted_text=extracted_text,
-        parse_quality=parse_result.get('parse_quality', 'good') if DocumentParser and extracted_text is not None else 'good',
+        parse_quality=(
+            parse_result.get('parse_quality', 'good')
+            if parse_result and 'parse_quality' in parse_result
+            else ('empty' if not extracted_text else 'good')
+        ),
     )
     db.add(document)
     db.commit()
