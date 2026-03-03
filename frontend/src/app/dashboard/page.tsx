@@ -535,11 +535,21 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
   onDelete: (id: string) => void; isUploading: boolean
   onSearch: (q: string) => void; searchQuery: string; searchResults: api.SearchResult[] | null
 }) {
+  const [inputValue, setInputValue] = useState(searchQuery)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    setInputValue(searchQuery)
+  }, [searchQuery])
+
+  useEffect(() => {
+    return () => clearTimeout(searchTimerRef.current)
+  }, [])
 
   const shown = files.filter((f) =>
     f.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -616,17 +626,25 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
         <input
           type="text"
           placeholder="Search document content…"
-          value={searchQuery}
+          value={inputValue}
           onChange={(e) => {
             const val = e.target.value
-            clearTimeout((window as Window & { __searchTimeout?: number }).__searchTimeout)
-            ;(window as Window & { __searchTimeout?: number }).__searchTimeout = window.setTimeout(() => onSearch(val), 400) as unknown as number
+            setInputValue(val)
+            clearTimeout(searchTimerRef.current)
+            searchTimerRef.current = setTimeout(() => {
+              if (val.trim().length < 2) { onSearch(''); return }
+              onSearch(val)
+            }, 400)
           }}
           className="flex-1 py-2 px-1 text-sm bg-transparent outline-none"
           style={{ color: 'var(--text-primary)', fontSize: '16px' }}
         />
-        {searchQuery && (
-          <button onClick={() => onSearch('')} className="mr-2 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+        {inputValue && (
+          <button onClick={() => {
+            clearTimeout(searchTimerRef.current)
+            setInputValue('')
+            onSearch('')
+          }} className="mr-2 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
             <X size={13} />
           </button>
         )}
