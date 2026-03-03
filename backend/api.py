@@ -118,6 +118,7 @@ class DocumentResponse(BaseModel):
     original_filename: str
     file_size: int
     document_type: Optional[str]
+    parse_quality: Optional[str] = "good"
     created_at: datetime
 
     class Config:
@@ -218,6 +219,13 @@ async def startup():
     with engine.connect() as conn:
         try:
             conn.execute(__import__('sqlalchemy').text("ALTER TABLE chats ADD COLUMN title VARCHAR(255)"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+        try:
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE documents ADD COLUMN parse_quality VARCHAR(20) DEFAULT 'good'"
+            ))
             conn.commit()
         except Exception:
             pass  # Column already exists
@@ -414,14 +422,15 @@ async def upload_document(
     
     # Extract text if parser available
     extracted_text = None
+    parse_result = {}
     if DocumentParser:
         try:
             parser = DocumentParser()
-            result = parser.parse_document(file_info["file_path"])
-            extracted_text = result.get('text_content', '')
+            parse_result = parser.parse_document(file_info["file_path"])
+            extracted_text = parse_result.get('text_content', '')
             if not extracted_text:
                 # Try alternative key
-                extracted_text = result.get('text', '') or result.get('content', '')
+                extracted_text = parse_result.get('text', '') or parse_result.get('content', '')
         except Exception as e:
             # Log error but continue
             logger.warning(f"Text extraction failed: {e}")
@@ -442,7 +451,8 @@ async def upload_document(
         file_size=file_info["file_size"],
         mime_type=file_info["mime_type"],
         document_type=doc_type,
-        extracted_text=extracted_text
+        extracted_text=extracted_text,
+        parse_quality=parse_result.get('parse_quality', 'good') if DocumentParser and extracted_text is not None else 'good',
     )
     db.add(document)
     db.commit()

@@ -71,6 +71,7 @@ class Document(Base):
     document_type = Column(String(50))  # contract, specification, rfi, submittal, drawing
     extracted_text = Column(Text)  # Parsed text content
     summary = Column(Text)  # AI-generated summary
+    parse_quality = Column(String(20), default="good")  # 'good', 'low', 'empty'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

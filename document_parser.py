@@ -696,13 +696,22 @@ class ConstructionDocumentParser:
 
         doc_type = detect_document_type(text, fp.name)
 
+        word_count = len((text or '').split())
+        if word_count == 0:
+            parse_quality = 'empty'
+        elif word_count < 50:
+            parse_quality = 'low'
+        else:
+            parse_quality = 'good'
+
         return {
             'filename': fp.name,
             'file_path': str(fp),
             'document_type': doc_type,
             'text_content': text,
-            'word_count': len(text.split()),
+            'word_count': word_count,
             'char_count': len(text),
+            'parse_quality': parse_quality,
         }
 
     def parse_directory(self, directory_path: str) -> List[Dict]:

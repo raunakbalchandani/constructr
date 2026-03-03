@@ -68,6 +68,7 @@ export interface Document {
   original_filename: string
   file_size: number
   document_type: string
+  parse_quality?: string
   created_at: string
 }
 

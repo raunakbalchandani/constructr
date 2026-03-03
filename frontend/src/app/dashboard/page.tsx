@@ -21,6 +21,7 @@ interface UploadedFile {
   type: string
   size: string
   uploadedAt: string
+  parseQuality?: string
 }
 interface Message {
   id: string
@@ -623,6 +624,26 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
                   {f.name}
                 </p>
 
+                {/* Quality badges */}
+                {f.parseQuality === 'empty' && (
+                  <span style={{
+                    fontSize: '0.6rem', padding: '1px 5px',
+                    backgroundColor: 'rgba(248,113,113,0.15)',
+                    color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
+                    fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                    display: 'inline-block', marginBottom: '6px',
+                  }}>EMPTY</span>
+                )}
+                {f.parseQuality === 'low' && (
+                  <span style={{
+                    fontSize: '0.6rem', padding: '1px 5px',
+                    backgroundColor: 'rgba(251,191,36,0.15)',
+                    color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                    fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                    display: 'inline-block', marginBottom: '6px',
+                  }}>POOR</span>
+                )}
+
                 {/* Meta */}
                 <div className="flex items-center justify-between gap-2 mt-auto">
                   <span className="text-xs px-1.5 py-0.5 flex-shrink-0"
@@ -657,6 +678,24 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
                 <div className="flex items-center gap-2 min-w-0">
                   <CatIcon size={13} style={{ color: c.color, flexShrink: 0 }} />
                   <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</span>
+                  {f.parseQuality === 'empty' && (
+                    <span style={{
+                      fontSize: '0.6rem', padding: '1px 5px',
+                      backgroundColor: 'rgba(248,113,113,0.15)',
+                      color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                      flexShrink: 0,
+                    }}>EMPTY</span>
+                  )}
+                  {f.parseQuality === 'low' && (
+                    <span style={{
+                      fontSize: '0.6rem', padding: '1px 5px',
+                      backgroundColor: 'rgba(251,191,36,0.15)',
+                      color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                      fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                      flexShrink: 0,
+                    }}>POOR</span>
+                  )}
                 </div>
                 <span className="text-xs px-1.5 py-0.5 inline-block"
                   style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
@@ -1711,6 +1750,7 @@ export default function DashboardPage() {
         type: d.document_type ?? 'unknown',
         size: formatSize(d.file_size ?? 0),
         uploadedAt: d.created_at?.split('T')[0] ?? '—',
+        parseQuality: d.parse_quality ?? 'good',
       })))
     } catch (e) { console.error(e) }
   }
@@ -1810,7 +1850,7 @@ export default function DashboardPage() {
     for (const file of Array.from(fileList)) {
       try {
         const doc = await api.documents.upload(parseInt(current.id), file)
-        setFiles((p) => [{ id: doc.id.toString(), name: doc.original_filename, type: doc.document_type ?? 'unknown', size: formatSize(doc.file_size ?? 0), uploadedAt: new Date().toISOString().split('T')[0] }, ...p])
+        setFiles((p) => [{ id: doc.id.toString(), name: doc.original_filename, type: doc.document_type ?? 'unknown', size: formatSize(doc.file_size ?? 0), uploadedAt: new Date().toISOString().split('T')[0], parseQuality: doc.parse_quality ?? 'good' }, ...p])
         setProjects((p) => p.map((pr) => pr.id === current.id ? { ...pr, fileCount: pr.fileCount + 1 } : pr))
       } catch (e) { console.error(e) }
     }
