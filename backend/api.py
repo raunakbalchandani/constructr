@@ -365,6 +365,56 @@ async def delete_project(
     return {"message": "Project deleted"}
 
 
+@app.get("/projects/{project_id}/analytics")
+async def get_project_analytics(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Return analytics summary for a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    docs = db.query(Document).filter(Document.project_id == project_id).all()
+
+    type_breakdown: dict = {}
+    total_words = 0
+    for doc in docs:
+        t = doc.document_type or 'unknown'
+        type_breakdown[t] = type_breakdown.get(t, 0) + 1
+        if doc.extracted_text:
+            total_words += len(doc.extracted_text.split())
+
+    chat_count = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).count()
+
+    message_count = (
+        db.query(ChatMessage)
+        .join(Chat, Chat.id == ChatMessage.chat_id)
+        .filter(Chat.project_id == project_id)
+        .count()
+    )
+
+    memory_count = db.query(ProjectMemory).filter(
+        ProjectMemory.project_id == project_id
+    ).count()
+
+    return {
+        "doc_count": len(docs),
+        "total_words": total_words,
+        "type_breakdown": type_breakdown,
+        "chat_count": chat_count,
+        "message_count": message_count,
+        "memory_fact_count": memory_count,
+    }
+
+
 # ============ Document Routes ============
 
 @app.get("/projects/{project_id}/documents", response_model=List[DocumentResponse])

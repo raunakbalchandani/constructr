@@ -95,6 +95,20 @@ export const documents = {
     request<void>(`/projects/${projectId}/documents/${documentId}`, { method: 'DELETE' }),
 }
 
+export interface ProjectAnalytics {
+  doc_count: number
+  total_words: number
+  type_breakdown: Record<string, number>
+  chat_count: number
+  message_count: number
+  memory_fact_count: number
+}
+
+export const analytics = {
+  get: (projectId: number) =>
+    request<ProjectAnalytics>(`/projects/${projectId}/analytics`),
+}
+
 // Chat
 export interface ChatMessage {
   role: 'user' | 'assistant'

@@ -339,8 +339,8 @@ function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setC
 }
 
 // ─── Overview Tab ───────────────────────────────────────────
-function OverviewTab({ project, files, setTab }: {
-  project: Project | null; files: UploadedFile[]; setTab: (t: string) => void
+function OverviewTab({ project, files, setTab, analytics }: {
+  project: Project | null; files: UploadedFile[]; setTab: (t: string) => void; analytics: api.ProjectAnalytics | null
 }) {
   if (!project) {
     return (
@@ -374,6 +374,51 @@ function OverviewTab({ project, files, setTab }: {
           {project.name}
         </h1>
       </div>
+
+      {/* Analytics stats */}
+      {analytics && (
+        <>
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            {[
+              { label: 'DOCUMENTS', value: analytics.doc_count },
+              { label: 'TOTAL WORDS', value: analytics.total_words.toLocaleString() },
+              { label: 'CHAT THREADS', value: analytics.chat_count },
+              { label: 'MESSAGES', value: analytics.message_count },
+              { label: 'MEMORY FACTS', value: analytics.memory_fact_count },
+            ].map(({ label, value }) => (
+              <div key={label} className="p-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>{label}</p>
+                <p className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)' }}>{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Doc type breakdown */}
+          {Object.keys(analytics.type_breakdown).length > 0 && (
+            <div className="mb-6 p-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="label-mono mb-3" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>DOCUMENT TYPES</p>
+              <div className="space-y-2">
+                {Object.entries(analytics.type_breakdown)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([type, count]) => {
+                    const c = cat(type)
+                    const pct = analytics.doc_count > 0 ? Math.round((count / analytics.doc_count) * 100) : 0
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <span className="text-xs w-28 flex-shrink-0 truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{c.label}</span>
+                        <div className="flex-1 h-1.5" style={{ backgroundColor: 'var(--border)' }}>
+                          <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: c.color }} />
+                        </div>
+                        <span className="text-xs w-5 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{count}</span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
@@ -1777,6 +1822,7 @@ export default function DashboardPage() {
   const [chatThreads, setChatThreads] = useState<api.ChatThread[]>([])
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
+  const [projectAnalytics, setProjectAnalytics] = useState<api.ProjectAnalytics | null>(null)
 
   useEffect(() => { loadProjects() }, [])
   useEffect(() => {
@@ -1794,8 +1840,20 @@ export default function DashboardPage() {
     return () => { document.body.style.overflow = '' }
   }, [sidebarOpen])
   useEffect(() => {
-    if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })); setChatThreads([]); setCurrentChatId(null) }
-    else { setFiles([]); setChatMsgs([]); setChatThreads([]); setCurrentChatId(null) }
+    if (current) {
+      loadFiles()
+      setChatLoaded((p) => ({ ...p, [current.id]: false }))
+      setChatThreads([])
+      setCurrentChatId(null)
+      setProjectAnalytics(null)
+      api.analytics.get(parseInt(current.id)).then(setProjectAnalytics).catch(() => {})
+    } else {
+      setFiles([])
+      setChatMsgs([])
+      setChatThreads([])
+      setCurrentChatId(null)
+      setProjectAnalytics(null)
+    }
   }, [current])
   useEffect(() => {
     if (tab === 'chat' && current && !chatLoaded[current.id]) loadChatThreads()
@@ -1959,13 +2017,13 @@ export default function DashboardPage() {
 
   const renderContent = () => {
     switch (tab) {
-      case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
+      case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
       case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
-      default:          return <OverviewTab project={current} files={files} setTab={changeTab} />
+      default:          return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
     }
   }
 
