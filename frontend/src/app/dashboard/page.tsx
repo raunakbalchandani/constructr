@@ -531,7 +531,7 @@ const FILTER_OPTIONS = [
 ]
 
 function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuery, searchResults }: {
-  files: UploadedFile[]; onUpload: (f: FileList) => void
+  files: UploadedFile[]; onUpload: (f: FileList | null) => void
   onDelete: (id: string) => void; isUploading: boolean
   onSearch: (q: string) => void; searchQuery: string; searchResults: api.SearchResult[] | null
 }) {
@@ -586,9 +586,9 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
           </button>
         </div>
         <input ref={inputRef} type="file" multiple
-          accept=".pdf,.docx,.xlsx,.doc,.xls,.png,.jpg,.jpeg,.dwg,.dxf,.csv"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg,.jpeg"
           className="hidden"
-          onChange={(e) => e.target.files && onUpload(e.target.files)} />
+          onChange={(e) => { onUpload(e.target.files); e.target.value = '' }} />
       </div>
 
       {/* Stats strip */}
@@ -717,7 +717,13 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
           </p>
           <label className="btn-primary cursor-pointer text-xs">
             Upload Document
-            <input type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg" onChange={(e) => e.target.files && onUpload(e.target.files)} />
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg,.jpeg"
+              className="hidden"
+              onChange={(e) => { onUpload(e.target.files); e.target.value = '' }}
+            />
           </label>
         </div>
       )}
@@ -1882,7 +1888,6 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [current, setCurrent] = useState<Project | null>(null)
   const [files, setFiles] = useState<UploadedFile[]>([])
-  const [uploading, setUploading] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [toDelete, setToDelete] = useState<Project | null>(null)
@@ -1895,6 +1900,12 @@ export default function DashboardPage() {
   const [projectAnalytics, setProjectAnalytics] = useState<api.ProjectAnalytics | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<api.SearchResult[] | null>(null)
+  const [uploadQueue, setUploadQueue] = useState<Array<{
+    name: string
+    status: 'pending' | 'uploading' | 'done' | 'error'
+    error?: string
+  }>>([])
+
 
   useEffect(() => { loadProjects() }, [])
   useEffect(() => {
@@ -2052,17 +2063,49 @@ export default function DashboardPage() {
     setShowDelete(false); setToDelete(null)
   }
 
-  const handleUpload = async (fileList: FileList) => {
-    if (!current) return
-    setUploading(true)
-    for (const file of Array.from(fileList)) {
+  const handleBulkUpload = async (files: FileList | null) => {
+    if (!files || !files.length || !current) return
+    const fileArray = Array.from(files)
+    const queue = fileArray.map(f => ({ name: f.name, status: 'pending' as const }))
+    setUploadQueue(queue)
+
+    for (let i = 0; i < fileArray.length; i++) {
+      setUploadQueue(prev => prev.map((item, idx) =>
+        idx === i ? { ...item, status: 'uploading' } : item
+      ))
       try {
-        const doc = await api.documents.upload(parseInt(current.id), file)
-        setFiles((p) => [{ id: doc.id.toString(), name: doc.original_filename, type: doc.document_type ?? 'unknown', size: formatSize(doc.file_size ?? 0), uploadedAt: new Date().toISOString().split('T')[0], parseQuality: doc.parse_quality ?? 'good' }, ...p])
-        setProjects((p) => p.map((pr) => pr.id === current.id ? { ...pr, fileCount: pr.fileCount + 1 } : pr))
-      } catch (e) { console.error(e) }
+        const doc = await api.documents.upload(parseInt(current.id), fileArray[i])
+        setFiles(prev => [{
+          id: doc.id.toString(),
+          name: doc.original_filename,
+          type: doc.document_type ?? 'unknown',
+          size: formatSize(doc.file_size ?? 0),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          parseQuality: doc.parse_quality ?? 'good',
+        }, ...prev])
+        setProjects(prev => prev.map(pr =>
+          pr.id === current.id ? { ...pr, fileCount: pr.fileCount + 1 } : pr
+        ))
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: 'done' } : item
+        ))
+      } catch (err) {
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? {
+            ...item, status: 'error',
+            error: err instanceof Error ? err.message : 'Upload failed',
+          } : item
+        ))
+      }
     }
-    setUploading(false)
+
+    // Refresh analytics after all uploads complete
+    if (current) {
+      api.analytics.get(parseInt(current.id)).then(setProjectAnalytics).catch(() => {})
+    }
+
+    // Auto-clear queue after 4 seconds
+    setTimeout(() => setUploadQueue([]), 4000)
   }
 
   const handleDeleteFile = async (id: string) => {
@@ -2103,7 +2146,7 @@ export default function DashboardPage() {
   const renderContent = () => {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
-      case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} />
+      case 'files':     return <FilesTab files={files} onUpload={handleBulkUpload} onDelete={handleDeleteFile} isUploading={uploadQueue.some(f => f.status === 'uploading')} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
@@ -2173,6 +2216,48 @@ export default function DashboardPage() {
           {renderContent()}
         </div>
       </main>
+
+      {/* Floating upload progress panel */}
+      {uploadQueue.length > 0 && (
+        <div className="fixed bottom-4 right-4 w-72 z-50 shadow-xl"
+          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between px-4 py-2.5"
+            style={{ borderBottom: '1px solid var(--border)' }}>
+            <span className="text-xs font-semibold uppercase"
+              style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
+              {uploadQueue.filter(f => f.status === 'done').length}/{uploadQueue.length} Uploaded
+            </span>
+            {uploadQueue.every(f => f.status === 'done' || f.status === 'error') && (
+              <button onClick={() => setUploadQueue([])} style={{ color: 'var(--text-secondary)' }}>
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <div className="p-2 space-y-1 max-h-52 overflow-y-auto">
+            {uploadQueue.map((item, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-2 py-1.5">
+                {item.status === 'uploading' && (
+                  <Loader2 size={12} className="animate-spin flex-shrink-0" style={{ color: 'var(--accent)' }} />
+                )}
+                {item.status === 'done' && (
+                  <CheckCircle2 size={12} className="flex-shrink-0" style={{ color: '#34d399' }} />
+                )}
+                {item.status === 'error' && (
+                  <X size={12} className="flex-shrink-0" style={{ color: '#f87171' }} />
+                )}
+                {item.status === 'pending' && (
+                  <div className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: 'var(--border)' }} />
+                )}
+                <span className="text-xs truncate flex-1"
+                  style={{ color: item.status === 'error' ? '#f87171' : 'var(--text-secondary)' }}>
+                  {item.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
