@@ -1892,7 +1892,21 @@ function MessageContent({ content }: { content: string }) {
             </span>
           )
         }
-        return <ReactMarkdown key={i}>{part}</ReactMarkdown>
+        return (
+          <ReactMarkdown key={i} components={{
+            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+            strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+            li: ({ children }) => <li className="ml-2">{children}</li>,
+            code: ({ children }) => <code className="px-1.5 py-0.5 text-xs" style={{ backgroundColor: 'var(--surface)', fontFamily: 'var(--font-mono)' }}>{children}</code>,
+            h2: ({ children }) => <h2 className="font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+            h3: ({ children }) => <h3 className="font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+            blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--accent)' }}>{children}</blockquote>,
+          }}>
+            {part}
+          </ReactMarkdown>
+        )
       })}
     </>
   )
