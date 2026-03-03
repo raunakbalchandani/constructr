@@ -1242,19 +1242,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
                 </div>
                 <div className="flex-1 text-sm leading-relaxed"
                   style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '0.75rem 1rem', color: 'var(--text-primary)' }}>
-                  <ReactMarkdown components={{
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>,
-                    code: ({ children }) => <code className="px-1.5 py-0.5 text-xs" style={{ backgroundColor: 'var(--surface)', fontFamily: 'var(--font-mono)' }}>{children}</code>,
-                    h2: ({ children }) => <h2 className="font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                    h3: ({ children }) => <h3 className="font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
-                    blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--accent)' }}>{children}</blockquote>,
-                  }}>
-                    {msg.content}
-                  </ReactMarkdown>
+                  <MessageContent content={msg.content} />
                   <p className="text-xs mt-2 opacity-40">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
@@ -1878,6 +1866,35 @@ function SettingsTab({ selectedModel, onModelChange }: {
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Citation renderer ──────────────────────────────────────
+function MessageContent({ content }: { content: string }) {
+  const parts = content.split(/(\[src:[^\]]+\])/g)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = part.match(/^\[src:([^\]]+)\]$/)
+        if (m) {
+          return (
+            <span key={i} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+              padding: '1px 6px', margin: '0 2px',
+              backgroundColor: 'rgba(74,222,128,0.1)',
+              border: '1px solid rgba(74,222,128,0.25)',
+              fontSize: '0.65rem', fontFamily: 'var(--font-mono)',
+              color: 'var(--accent)', verticalAlign: 'middle',
+              lineHeight: 1.4,
+            }}>
+              <FileText size={9} />
+              {m[1]}
+            </span>
+          )
+        }
+        return <ReactMarkdown key={i}>{part}</ReactMarkdown>
+      })}
+    </>
   )
 }
 
