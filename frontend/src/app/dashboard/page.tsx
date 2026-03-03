@@ -678,61 +678,63 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           })}
         </div>
       ) : (
-        <div style={{ border: '1px solid var(--border)' }}>
-          <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
-            style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
-            <span />
-          </div>
-          {shown.map((f) => {
-            const c = cat(f.type)
-            const CatIcon = c.icon
-            return (
-              <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 items-center px-4 py-3 transition-colors"
-                style={{ borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <CatIcon size={13} style={{ color: c.color, flexShrink: 0 }} />
-                  <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</span>
-                  {f.parseQuality === 'empty' && (
-                    <span style={{
-                      fontSize: '0.6rem', padding: '1px 5px',
-                      backgroundColor: 'rgba(248,113,113,0.15)',
-                      color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
-                      fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
-                      flexShrink: 0,
-                    }}>EMPTY</span>
-                  )}
-                  {f.parseQuality === 'low' && (
-                    <span style={{
-                      fontSize: '0.6rem', padding: '1px 5px',
-                      backgroundColor: 'rgba(251,191,36,0.15)',
-                      color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
-                      fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
-                      flexShrink: 0,
-                    }}>POOR</span>
-                  )}
+        <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
+          <div style={{ border: '1px solid var(--border)' }}>
+            <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
+              style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
+              <span />
+            </div>
+            {shown.map((f) => {
+              const c = cat(f.type)
+              const CatIcon = c.icon
+              return (
+                <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 items-center px-4 py-3 transition-colors"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CatIcon size={13} style={{ color: c.color, flexShrink: 0 }} />
+                    <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</span>
+                    {f.parseQuality === 'empty' && (
+                      <span style={{
+                        fontSize: '0.6rem', padding: '1px 5px',
+                        backgroundColor: 'rgba(248,113,113,0.15)',
+                        color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
+                        fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                        flexShrink: 0,
+                      }}>EMPTY</span>
+                    )}
+                    {f.parseQuality === 'low' && (
+                      <span style={{
+                        fontSize: '0.6rem', padding: '1px 5px',
+                        backgroundColor: 'rgba(251,191,36,0.15)',
+                        color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                        fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                        flexShrink: 0,
+                      }}>POOR</span>
+                    )}
+                  </div>
+                  <span className="text-xs px-1.5 py-0.5 inline-block"
+                    style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
+                    {c.label.toUpperCase()}
+                  </span>
+                  <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
+                  <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
+                  <button onClick={() => onDelete(f.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
+                    <Trash2 size={12} />
+                  </button>
                 </div>
-                <span className="text-xs px-1.5 py-0.5 inline-block"
-                  style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
-                  {c.label.toUpperCase()}
-                </span>
-                <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
-                <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
-                <button onClick={() => onDelete(f.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       ))}
     </div>
@@ -1076,7 +1078,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+      <div className="flex-1 overflow-y-auto space-y-4 pr-1" style={{ WebkitOverflowScrolling: 'touch' as React.CSSProperties['WebkitOverflowScrolling'] }}>
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4 text-center px-4 py-8">
             <MessageSquare size={28} style={{ color: 'var(--accent)', opacity: 0.3 }} />
@@ -1227,7 +1229,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
               placeholder={!currentProject ? 'Select a project first…' : files.length === 0 ? 'Ask a question or type @ to reference a document…' : 'Ask anything… type @ to reference a document'}
               disabled={!currentProject || isLoading}
               className="input flex-1"
-              style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5' }} />
+              style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5', fontSize: '16px' }} />
             <button onClick={send}
               disabled={!input.trim() || isLoading || !currentProject}
               className="btn-primary p-3 flex-shrink-0">
@@ -1783,6 +1785,14 @@ export default function DashboardPage() {
     if (savedTab) setTab(savedTab)
     if (savedModel) setSelectedModel(savedModel)
   }, [])
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [sidebarOpen])
   useEffect(() => {
     if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })); setChatThreads([]); setCurrentChatId(null) }
     else { setFiles([]); setChatMsgs([]); setChatThreads([]); setCurrentChatId(null) }
