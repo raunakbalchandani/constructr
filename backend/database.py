@@ -130,6 +130,21 @@ class ProjectMemory(Base):
     project = relationship("Project", back_populates="memories")
 
 
+class ConflictStatus(Base):
+    __tablename__ = "conflict_statuses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    conflict_hash = Column(String(64), nullable=False)  # derived from conflict title
+    status = Column(String(20), default="open")  # 'open', 'resolved', 'dismissed'
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_conflictstatus_project_id', 'project_id'),
+        UniqueConstraint('project_id', 'conflict_hash', name='uq_conflictstatus_project_conflict'),
+    )
+
+
 # Database dependency for FastAPI
 def get_db():
     db = SessionLocal()

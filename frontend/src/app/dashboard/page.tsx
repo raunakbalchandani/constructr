@@ -1357,16 +1357,22 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 }
 
 // ─── Conflicts Tab ──────────────────────────────────────────
+const conflictHash = (title: string): string =>
+  btoa(unescape(encodeURIComponent(title))).slice(0, 24).replace(/[+/=]/g, '_')
+
 function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; currentProject: Project | null }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [conflicts, setConflicts] = useState<api.Conflict[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
   const [hasScanned, setHasScanned] = useState(false)
+  const [conflictStatusMap, setConflictStatusMap] = useState<Record<string, string>>({})
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolved' | 'dismissed'>('all')
 
   useEffect(() => {
     setHasScanned(false)
     setConflicts([])
+    setConflictStatusMap({})
   }, [currentProject?.id ?? currentProject])
 
   const toggleFile = (id: string) => {
@@ -1386,6 +1392,8 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
       const docIds = selectedIds.size > 0 ? Array.from(selectedIds).map(id => parseInt(id)) : undefined
       const data = await api.chat.conflicts(parseInt(currentProject.id), docIds)
       setConflicts(Array.isArray(data) ? data : [])
+      const statuses = await api.conflictStatuses.getAll(parseInt(currentProject.id))
+      setConflictStatusMap(statuses)
     } catch (err: any) {
       setError(err.message ?? 'Analysis failed.')
     } finally { setAnalyzing(false); setHasScanned(true) }
@@ -1402,6 +1410,10 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
   }
 
   const mono = { fontFamily: 'var(--font-mono)' } as const
+
+  const visibleConflicts = statusFilter === 'all'
+    ? conflicts
+    : conflicts.filter(c => (conflictStatusMap[conflictHash(c.title)] || 'open') === statusFilter)
 
   return (
     <div className="space-y-5">
@@ -1491,7 +1503,24 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
       ) : (
         /* Conflict cards */
         <div className="space-y-2">
-          {conflicts.map((c, i) => {
+          {/* Status filter */}
+          {conflicts.length > 0 && (
+            <div className="flex items-center gap-2 mb-3">
+              {(['all', 'open', 'resolved', 'dismissed'] as const).map(f => (
+                <button key={f} onClick={() => setStatusFilter(f)}
+                  className="text-xs px-2 py-1 transition-colors"
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.06em',
+                    border: '1px solid var(--border)',
+                    backgroundColor: statusFilter === f ? 'var(--accent)' : 'transparent',
+                    color: statusFilter === f ? 'var(--accent-dark, #000)' : 'var(--text-secondary)',
+                  }}>
+                  {f.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
+          {visibleConflicts.map((c, i) => {
             const s = SEV[c.severity] ?? SEV.medium
             return (
               <div key={c.id} style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
@@ -1526,6 +1555,54 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
                     ))}
                   </div>
                 )}
+                {/* Conflict status controls */}
+                {(() => {
+                  const hash = conflictHash(c.title)
+                  const status = conflictStatusMap[hash] || 'open'
+                  const projectId = parseInt(currentProject?.id ?? '0')
+                  return (
+                    <div className="flex items-center gap-2 px-4 py-2"
+                      style={{ borderTop: `1px solid ${s.border}` }}>
+                      <span className="text-xs flex-1" style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.06em',
+                        color: status === 'resolved' ? '#34d399' : status === 'dismissed' ? 'var(--text-secondary)' : '#f87171',
+                      }}>
+                        {status.toUpperCase()}
+                      </span>
+                      {status !== 'resolved' && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'resolved')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'resolved' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid rgba(52,211,153,0.3)', color: '#34d399', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(52,211,153,0.1)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}>
+                          RESOLVE
+                        </button>
+                      )}
+                      {status !== 'dismissed' && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'dismissed')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'dismissed' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}>
+                          DISMISS
+                        </button>
+                      )}
+                      {(status === 'resolved' || status === 'dismissed') && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'open')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'open' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>
+                          REOPEN
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}

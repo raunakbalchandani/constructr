@@ -202,3 +202,13 @@ export const chat = {
       body: JSON.stringify({ doc_id_1: docId1, doc_id_2: docId2 }),
     }),
 }
+
+export const conflictStatuses = {
+  getAll: (projectId: number) =>
+    request<Record<string, string>>(`/projects/${projectId}/conflict-statuses`),
+  set: (projectId: number, conflictHash: string, status: 'open' | 'resolved' | 'dismissed') =>
+    request<{ conflict_hash: string; status: string }>(
+      `/projects/${projectId}/conflict-statuses/${conflictHash}`,
+      { method: 'POST', body: JSON.stringify({ status }) }
+    ),
+}

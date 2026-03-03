@@ -26,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT, CHAT_HISTORY_WINDOW
-from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, init_db
+from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, ConflictStatus, init_db
 from backend.auth import (
     get_current_user, 
     create_access_token, 
@@ -1126,6 +1126,64 @@ async def analyze_conflicts(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Conflict analysis error: {str(e)}")
+
+
+@app.get("/projects/{project_id}/conflict-statuses")
+async def get_conflict_statuses(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all conflict status overrides for a project. Returns dict of hash->status."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    statuses = db.query(ConflictStatus).filter(
+        ConflictStatus.project_id == project_id
+    ).all()
+    return {s.conflict_hash: s.status for s in statuses}
+
+
+@app.post("/projects/{project_id}/conflict-statuses/{conflict_hash}")
+async def set_conflict_status(
+    project_id: int,
+    conflict_hash: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set open/resolved/dismissed status for a specific conflict."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    new_status = body.get("status", "open")
+    if new_status not in ("open", "resolved", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be open, resolved, or dismissed")
+
+    existing = db.query(ConflictStatus).filter(
+        ConflictStatus.project_id == project_id,
+        ConflictStatus.conflict_hash == conflict_hash
+    ).first()
+
+    if existing:
+        existing.status = new_status
+        existing.updated_at = datetime.utcnow()
+    else:
+        db.add(ConflictStatus(
+            project_id=project_id,
+            conflict_hash=conflict_hash,
+            status=new_status
+        ))
+    db.commit()
+    return {"conflict_hash": conflict_hash, "status": new_status}
 
 
 @app.post("/projects/{project_id}/compare", response_model=CompareResponse)
