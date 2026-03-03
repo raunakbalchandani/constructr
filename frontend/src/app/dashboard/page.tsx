@@ -541,7 +541,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     setInputValue(searchQuery)
