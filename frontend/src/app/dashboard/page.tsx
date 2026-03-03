@@ -571,24 +571,26 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           placeholder="Search files…" className="input pl-9" />
       </div>
 
-      {/* Drop zone */}
-      <div onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); e.dataTransfer.files.length && onUpload(e.dataTransfer.files) }}
-        onClick={() => inputRef.current?.click()}
-        className="border-2 border-dashed py-6 text-center cursor-pointer transition-all"
-        style={{
-          borderColor: dragging ? 'var(--accent)' : 'var(--border)',
-          backgroundColor: dragging ? 'var(--glow)' : 'transparent',
-        }}>
-        <Upload size={20} className="mx-auto mb-2" style={{ color: dragging ? 'var(--accent)' : 'var(--text-secondary)' }} />
-        <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>
-          Drop files or <span style={{ color: 'var(--accent)' }}>browse</span>
-        </p>
-        <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-          PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · CSV
-        </p>
-      </div>
+      {/* Drop zone — only shown when files already exist */}
+      {files.length > 0 && (
+        <div onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); e.dataTransfer.files.length && onUpload(e.dataTransfer.files) }}
+          onClick={() => inputRef.current?.click()}
+          className="border-2 border-dashed py-6 text-center cursor-pointer transition-all"
+          style={{
+            borderColor: dragging ? 'var(--accent)' : 'var(--border)',
+            backgroundColor: dragging ? 'var(--glow)' : 'transparent',
+          }}>
+          <Upload size={20} className="mx-auto mb-2" style={{ color: dragging ? 'var(--accent)' : 'var(--text-secondary)' }} />
+          <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+            Drop files or <span style={{ color: 'var(--accent)' }}>browse</span>
+          </p>
+          <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+            PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · CSV
+          </p>
+        </div>
+      )}
 
       {/* File grid / list */}
       {files.length === 0 && (
@@ -598,7 +600,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           <p className="text-xs max-w-xs" style={{ color: 'var(--text-secondary)' }}>
             Upload contracts, specs, RFIs, drawings, or any construction document to get started.
           </p>
-          <label className="btn-primary cursor-pointer text-xs" style={{ padding: '8px 16px' }}>
+          <label className="btn-primary cursor-pointer text-xs">
             Upload Document
             <input type="file" className="hidden" accept=".pdf,.docx,.doc,.xlsx,.xls,.dwg,.dxf,.png,.jpg" onChange={(e) => e.target.files && onUpload(e.target.files)} />
           </label>
@@ -1076,7 +1078,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center flex-1 space-y-4 text-center px-4 py-16">
+          <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4 text-center px-4 py-8">
             <MessageSquare size={28} style={{ color: 'var(--accent)', opacity: 0.3 }} />
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ask Foreperson anything</p>
             <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
@@ -1086,7 +1088,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
                 'Find any scope conflicts',
                 'Who are the key parties?',
               ].map((prompt) => (
-                <button key={prompt} onClick={() => onSendMessage(prompt, undefined, memoryOn)}
+                <button key={prompt} onClick={() => setInput(prompt)}
                   className="text-xs px-3 py-2 text-left transition-colors"
                   style={{
                     border: '1px solid var(--border)',
@@ -1250,6 +1252,11 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
   const [hasScanned, setHasScanned] = useState(false)
+
+  useEffect(() => {
+    setHasScanned(false)
+    setConflicts([])
+  }, [currentProject?.id ?? currentProject])
 
   const toggleFile = (id: string) => {
     setSelectedIds(prev => {
