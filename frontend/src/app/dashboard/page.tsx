@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from 'next-themes'
@@ -11,7 +11,7 @@ import {
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -21,6 +21,7 @@ interface UploadedFile {
   type: string
   size: string
   uploadedAt: string
+  parseQuality?: string
 }
 interface Message {
   id: string
@@ -257,7 +258,12 @@ function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setC
               </div>
               <div className="space-y-px">
                 {projects.length === 0
-                  ? <p className="text-xs py-1 px-1" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>No projects</p>
+                  ? <div className="py-2 px-1 space-y-2">
+                      <p className="text-xs" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>No projects yet</p>
+                      <button onClick={onNew} className="text-xs underline" style={{ color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                        + Create first project →
+                      </button>
+                    </div>
                   : projects.map((p) => {
                     const isActive = current?.id === p.id
                     return (
@@ -333,8 +339,8 @@ function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setC
 }
 
 // ─── Overview Tab ───────────────────────────────────────────
-function OverviewTab({ project, files, setTab }: {
-  project: Project | null; files: UploadedFile[]; setTab: (t: string) => void
+function OverviewTab({ project, files, setTab, analytics }: {
+  project: Project | null; files: UploadedFile[]; setTab: (t: string) => void; analytics: api.ProjectAnalytics | null
 }) {
   if (!project) {
     return (
@@ -351,13 +357,7 @@ function OverviewTab({ project, files, setTab }: {
     )
   }
 
-  // File type breakdown
-  const typeCounts: Record<string, number> = {}
-  files.forEach((f) => { typeCounts[f.type] = (typeCounts[f.type] ?? 0) + 1 })
 
-  const topTypes = Object.entries(typeCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
 
   return (
     <div className="space-y-8">
@@ -369,54 +369,49 @@ function OverviewTab({ project, files, setTab }: {
         </h1>
       </div>
 
-      {/* Quick stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-        {[
-          { label: 'Total Files', value: files.length.toString(), action: () => setTab('files') },
-          { label: 'File Types', value: Object.keys(typeCounts).length.toString(), action: () => setTab('files') },
-          { label: 'AI Ready', value: project ? 'Yes' : '—', action: () => setTab('chat') },
-          { label: 'Conflicts', value: '—', action: () => setTab('conflicts') },
-        ].map(({ label, value, action }) => (
-          <button key={label} onClick={action}
-            className="p-6 text-left transition-colors group"
-            style={{ backgroundColor: 'var(--card)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--surface)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}>
-            <p className="label-mono mb-2" style={{ fontFamily: 'var(--font-mono)' }}>{label}</p>
-            <p className="text-3xl font-black uppercase" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>{value}</p>
-          </button>
-        ))}
-      </div>
+      {/* Analytics stats */}
+      {analytics && (
+        <>
+          {/* Stats cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            {[
+              { label: 'DOCUMENTS', value: analytics.doc_count },
+              { label: 'TOTAL WORDS', value: analytics.total_words.toLocaleString() },
+              { label: 'CHAT THREADS', value: analytics.chat_count },
+              { label: 'MESSAGES', value: analytics.message_count },
+              { label: 'MEMORY FACTS', value: analytics.memory_fact_count },
+            ].map(({ label, value }) => (
+              <div key={label} className="p-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                <p className="label-mono mb-1" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>{label}</p>
+                <p className="text-2xl font-black" style={{ fontFamily: 'var(--font-display)' }}>{value}</p>
+              </div>
+            ))}
+          </div>
 
-      {/* File breakdown */}
-      {topTypes.length > 0 && (
-        <div>
-          <div className="flex items-center gap-4 mb-4">
-            <span className="label-mono-accent" style={{ fontFamily: 'var(--font-mono)' }}>// FILE BREAKDOWN</span>
-            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
-          </div>
-          <div className="grid md:grid-cols-3 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-            {topTypes.map(([type, count]) => {
-              const c = cat(type)
-              const CatIcon = c.icon
-              return (
-                <div key={type} className="flex items-center gap-4 p-5 transition-colors"
-                  style={{ backgroundColor: 'var(--card)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}>
-                  <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: c.color + '15', border: `1px solid ${c.color}30` }}>
-                    <CatIcon size={16} style={{ color: c.color }} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wide truncate" style={{ letterSpacing: '0.06em' }}>{c.label}</p>
-                    <p className="text-xl font-black" style={{ fontFamily: 'var(--font-display)', color: c.color }}>{count}</p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+          {/* Doc type breakdown */}
+          {Object.keys(analytics.type_breakdown).length > 0 && (
+            <div className="mb-6 p-4" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+              <p className="label-mono mb-3" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em' }}>DOCUMENT TYPES</p>
+              <div className="space-y-2">
+                {Object.entries(analytics.type_breakdown)
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([type, count]) => {
+                    const c = cat(type)
+                    const pct = analytics.doc_count > 0 ? Math.round((count / analytics.doc_count) * 100) : 0
+                    return (
+                      <div key={type} className="flex items-center gap-3">
+                        <span className="text-xs w-28 flex-shrink-0 truncate" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{c.label}</span>
+                        <div className="flex-1 h-1.5" style={{ backgroundColor: 'var(--border)' }}>
+                          <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: c.color }} />
+                        </div>
+                        <span className="text-xs w-5 text-right flex-shrink-0" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{count}</span>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Quick actions */}
@@ -479,15 +474,26 @@ const FILTER_OPTIONS = [
   { value: 'punch_list', label: 'Punch Lists' },
 ]
 
-function FilesTab({ files, onUpload, onDelete, isUploading }: {
-  files: UploadedFile[]; onUpload: (f: FileList) => void
+function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuery, searchResults }: {
+  files: UploadedFile[]; onUpload: (f: FileList | null) => void
   onDelete: (id: string) => void; isUploading: boolean
+  onSearch: (q: string) => void; searchQuery: string; searchResults: api.SearchResult[] | null
 }) {
+  const [inputValue, setInputValue] = useState(searchQuery)
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [view, setView] = useState<'grid' | 'list'>('grid')
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => {
+    setInputValue(searchQuery)
+  }, [searchQuery])
+
+  useEffect(() => {
+    return () => clearTimeout(searchTimerRef.current)
+  }, [])
 
   const shown = files.filter((f) =>
     f.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -524,9 +530,9 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           </button>
         </div>
         <input ref={inputRef} type="file" multiple
-          accept=".pdf,.docx,.xlsx,.doc,.xls,.png,.jpg,.jpeg,.dwg,.dxf,.csv"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
           className="hidden"
-          onChange={(e) => e.target.files && onUpload(e.target.files)} />
+          onChange={(e) => { onUpload(e.target.files); e.target.value = '' }} />
       </div>
 
       {/* Stats strip */}
@@ -558,6 +564,65 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
         </div>
       )}
 
+      {/* Content search bar */}
+      <div className="flex items-center gap-2 mb-3" style={{ border: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+        <Search size={13} className="ml-3 flex-shrink-0" style={{ color: 'var(--text-secondary)' }} />
+        <input
+          type="text"
+          placeholder="Search document content…"
+          value={inputValue}
+          onChange={(e) => {
+            const val = e.target.value
+            setInputValue(val)
+            clearTimeout(searchTimerRef.current)
+            searchTimerRef.current = setTimeout(() => {
+              if (val.trim().length < 2) { onSearch(''); return }
+              onSearch(val)
+            }, 400)
+          }}
+          className="flex-1 py-2 px-1 text-sm bg-transparent outline-none"
+          style={{ color: 'var(--text-primary)', fontSize: '16px' }}
+        />
+        {inputValue && (
+          <button onClick={() => {
+            clearTimeout(searchTimerRef.current)
+            setInputValue('')
+            onSearch('')
+          }} className="mr-2 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
+      {/* Content search results */}
+      {searchResults !== null && (
+        <div className="space-y-2 mb-4">
+          {searchResults.length === 0
+            ? <p className="text-sm py-2 px-1" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                No results for &quot;{searchQuery}&quot;
+              </p>
+            : searchResults.map((r) => {
+                const c = cat(r.document_type)
+                return (
+                  <div key={r.doc_id} className="p-3" style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{r.filename}</span>
+                      <span className="text-xs px-1.5 py-0.5 flex-shrink-0"
+                        style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
+                        {c.label.toUpperCase()}
+                      </span>
+                      <span className="text-xs ml-auto flex-shrink-0" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                        {r.match_count} match{r.match_count !== 1 ? 'es' : ''}
+                      </span>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{r.snippet}</p>
+                  </div>
+                )
+              })
+          }
+        </div>
+      )}
+
       {/* Search */}
       <div className="relative">
         <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-secondary)' }} />
@@ -565,31 +630,52 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           placeholder="Search files…" className="input pl-9" />
       </div>
 
-      {/* Drop zone */}
-      <div onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); e.dataTransfer.files.length && onUpload(e.dataTransfer.files) }}
-        onClick={() => inputRef.current?.click()}
-        className="border-2 border-dashed py-6 text-center cursor-pointer transition-all"
-        style={{
-          borderColor: dragging ? 'var(--accent)' : 'var(--border)',
-          backgroundColor: dragging ? 'var(--glow)' : 'transparent',
-        }}>
-        <Upload size={20} className="mx-auto mb-2" style={{ color: dragging ? 'var(--accent)' : 'var(--text-secondary)' }} />
-        <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>
-          Drop files or <span style={{ color: 'var(--accent)' }}>browse</span>
-        </p>
-        <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-          PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · CSV
-        </p>
-      </div>
+      {/* Drop zone — only shown when files already exist */}
+      {files.length > 0 && (
+        <div onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); e.dataTransfer.files.length && onUpload(e.dataTransfer.files) }}
+          onClick={() => inputRef.current?.click()}
+          className="border-2 border-dashed py-6 text-center cursor-pointer transition-all"
+          style={{
+            borderColor: dragging ? 'var(--accent)' : 'var(--border)',
+            backgroundColor: dragging ? 'var(--glow)' : 'transparent',
+          }}>
+          <Upload size={20} className="mx-auto mb-2" style={{ color: dragging ? 'var(--accent)' : 'var(--text-secondary)' }} />
+          <p className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>
+            Drop files or <span style={{ color: 'var(--accent)' }}>browse</span>
+          </p>
+          <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
+            PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · CSV
+          </p>
+        </div>
+      )}
 
       {/* File grid / list */}
-      {shown.length === 0 ? (
+      {files.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 space-y-3 text-center">
+          <Upload size={32} style={{ color: 'var(--text-secondary)', opacity: 0.4 }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>No documents yet</p>
+          <p className="text-xs max-w-xs" style={{ color: 'var(--text-secondary)' }}>
+            Upload contracts, specs, RFIs, drawings, or any construction document to get started.
+          </p>
+          <label className="btn-primary cursor-pointer text-xs">
+            Upload Document
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
+              className="hidden"
+              onChange={(e) => { onUpload(e.target.files); e.target.value = '' }}
+            />
+          </label>
+        </div>
+      )}
+      {files.length > 0 && (shown.length === 0 ? (
         <div className="text-center py-14" style={{ border: '1px solid var(--border)' }}>
           <FileSearch size={28} className="mx-auto mb-3" style={{ color: 'var(--text-secondary)' }} />
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {files.length === 0 ? 'Upload your first file to get started' : 'No files match your search'}
+            No files match your search
           </p>
         </div>
       ) : view === 'grid' ? (
@@ -623,6 +709,26 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
                   {f.name}
                 </p>
 
+                {/* Quality badges */}
+                {f.parseQuality === 'empty' && (
+                  <span style={{
+                    fontSize: '0.6rem', padding: '1px 5px',
+                    backgroundColor: 'rgba(248,113,113,0.15)',
+                    color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
+                    fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                    display: 'inline-block', marginBottom: '6px',
+                  }}>EMPTY</span>
+                )}
+                {f.parseQuality === 'low' && (
+                  <span style={{
+                    fontSize: '0.6rem', padding: '1px 5px',
+                    backgroundColor: 'rgba(251,191,36,0.15)',
+                    color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                    fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                    display: 'inline-block', marginBottom: '6px',
+                  }}>POOR</span>
+                )}
+
                 {/* Meta */}
                 <div className="flex items-center justify-between gap-2 mt-auto">
                   <span className="text-xs px-1.5 py-0.5 flex-shrink-0"
@@ -637,45 +743,65 @@ function FilesTab({ files, onUpload, onDelete, isUploading }: {
           })}
         </div>
       ) : (
-        <div style={{ border: '1px solid var(--border)' }}>
-          <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
-            style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
-            <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
-            <span />
-          </div>
-          {shown.map((f) => {
-            const c = cat(f.type)
-            const CatIcon = c.icon
-            return (
-              <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 items-center px-4 py-3 transition-colors"
-                style={{ borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}>
-                <div className="flex items-center gap-2 min-w-0">
-                  <CatIcon size={13} style={{ color: c.color, flexShrink: 0 }} />
-                  <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</span>
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ border: '1px solid var(--border)' }}>
+            <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
+              style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
+              <span />
+            </div>
+            {shown.map((f) => {
+              const c = cat(f.type)
+              const CatIcon = c.icon
+              return (
+                <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 items-center px-4 py-3 transition-colors"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CatIcon size={13} style={{ color: c.color, flexShrink: 0 }} />
+                    <span className="text-xs truncate" style={{ color: 'var(--text-primary)' }}>{f.name}</span>
+                    {f.parseQuality === 'empty' && (
+                      <span style={{
+                        fontSize: '0.6rem', padding: '1px 5px',
+                        backgroundColor: 'rgba(248,113,113,0.15)',
+                        color: '#f87171', border: '1px solid rgba(248,113,113,0.3)',
+                        fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                        flexShrink: 0,
+                      }}>EMPTY</span>
+                    )}
+                    {f.parseQuality === 'low' && (
+                      <span style={{
+                        fontSize: '0.6rem', padding: '1px 5px',
+                        backgroundColor: 'rgba(251,191,36,0.15)',
+                        color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)',
+                        fontFamily: 'var(--font-mono)', letterSpacing: '0.05em',
+                        flexShrink: 0,
+                      }}>POOR</span>
+                    )}
+                  </div>
+                  <span className="text-xs px-1.5 py-0.5 inline-block"
+                    style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
+                    {c.label.toUpperCase()}
+                  </span>
+                  <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
+                  <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
+                  <button onClick={() => onDelete(f.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
+                    <Trash2 size={12} />
+                  </button>
                 </div>
-                <span className="text-xs px-1.5 py-0.5 inline-block"
-                  style={{ backgroundColor: c.color + '18', color: c.color, fontFamily: 'var(--font-mono)', fontSize: '0.55rem', letterSpacing: '0.06em' }}>
-                  {c.label.toUpperCase()}
-                </span>
-                <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
-                <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
-                <button onClick={() => onDelete(f.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   )
 }
@@ -1018,6 +1144,38 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center min-h-[300px] space-y-4 text-center px-4 py-8">
+            <MessageSquare size={28} style={{ color: 'var(--accent)', opacity: 0.3 }} />
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Ask Foreperson anything</p>
+            <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
+              {[
+                'Summarize all contracts',
+                'What are the key deadlines?',
+                'Find any scope conflicts',
+                'Who are the key parties?',
+              ].map((prompt) => (
+                <button key={prompt} onClick={() => setInput(prompt)}
+                  className="text-xs px-3 py-2 text-left transition-colors"
+                  style={{
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    backgroundColor: 'transparent'
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)'
+                    ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'
+                    ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)'
+                  }}>
+                  {prompt} →
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {messages.map((msg) => (
           <div key={msg.id}>
             {msg.role === 'assistant' ? (
@@ -1028,19 +1186,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
                 </div>
                 <div className="flex-1 text-sm leading-relaxed"
                   style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)', padding: '0.75rem 1rem', color: 'var(--text-primary)' }}>
-                  <ReactMarkdown components={{
-                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                    strong: ({ children }) => <strong className="font-bold">{children}</strong>,
-                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
-                    ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
-                    li: ({ children }) => <li className="ml-2">{children}</li>,
-                    code: ({ children }) => <code className="px-1.5 py-0.5 text-xs" style={{ backgroundColor: 'var(--surface)', fontFamily: 'var(--font-mono)' }}>{children}</code>,
-                    h2: ({ children }) => <h2 className="font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
-                    h3: ({ children }) => <h3 className="font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
-                    blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--accent)' }}>{children}</blockquote>,
-                  }}>
-                    {msg.content}
-                  </ReactMarkdown>
+                  <MessageContent content={msg.content} />
                   <p className="text-xs mt-2 opacity-40">{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
@@ -1136,7 +1282,7 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
               placeholder={!currentProject ? 'Select a project first…' : files.length === 0 ? 'Ask a question or type @ to reference a document…' : 'Ask anything… type @ to reference a document'}
               disabled={!currentProject || isLoading}
               className="input flex-1"
-              style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5' }} />
+              style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5', fontSize: '16px' }} />
             <button onClick={send}
               disabled={!input.trim() || isLoading || !currentProject}
               className="btn-primary p-3 flex-shrink-0">
@@ -1155,11 +1301,23 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
 }
 
 // ─── Conflicts Tab ──────────────────────────────────────────
+const conflictHash = (title: string): string =>
+  btoa(unescape(encodeURIComponent(title))).slice(0, 24).replace(/[+/=]/g, '_')
+
 function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; currentProject: Project | null }) {
   const [analyzing, setAnalyzing] = useState(false)
   const [conflicts, setConflicts] = useState<api.Conflict[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [error, setError] = useState('')
+  const [hasScanned, setHasScanned] = useState(false)
+  const [conflictStatusMap, setConflictStatusMap] = useState<Record<string, string>>({})
+  const [statusFilter, setStatusFilter] = useState<'all' | 'open' | 'resolved' | 'dismissed'>('all')
+
+  useEffect(() => {
+    setHasScanned(false)
+    setConflicts([])
+    setConflictStatusMap({})
+  }, [currentProject?.id ?? currentProject])
 
   const toggleFile = (id: string) => {
     setSelectedIds(prev => {
@@ -1173,14 +1331,16 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
     if (!currentProject) return
     const scope = selectedIds.size > 0 ? files.filter(f => selectedIds.has(f.id)) : files
     if (scope.length < 2) { setError('Select at least 2 files to analyze'); return }
-    setAnalyzing(true); setError('')
+    setAnalyzing(true); setError(''); setHasScanned(false)
     try {
       const docIds = selectedIds.size > 0 ? Array.from(selectedIds).map(id => parseInt(id)) : undefined
       const data = await api.chat.conflicts(parseInt(currentProject.id), docIds)
       setConflicts(Array.isArray(data) ? data : [])
+      const statuses = await api.conflictStatuses.getAll(parseInt(currentProject.id))
+      setConflictStatusMap(statuses)
     } catch (err: any) {
       setError(err.message ?? 'Analysis failed.')
-    } finally { setAnalyzing(false) }
+    } finally { setAnalyzing(false); setHasScanned(true) }
   }
 
   const high = conflicts.filter(c => c.severity === 'high')
@@ -1195,6 +1355,10 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
 
   const mono = { fontFamily: 'var(--font-mono)' } as const
 
+  const visibleConflicts = statusFilter === 'all'
+    ? conflicts
+    : conflicts.filter(c => (conflictStatusMap[conflictHash(c.title)] || 'open') === statusFilter)
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -1203,9 +1367,21 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
           <p style={{ ...mono, fontSize: '0.58rem', letterSpacing: '0.15em', color: 'var(--text-secondary)', marginBottom: 4 }}>// RISK REGISTER</p>
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Conflicts</h1>
         </div>
-        <button onClick={analyze} disabled={analyzing || files.length < 2} className="btn-primary flex items-center gap-2 flex-shrink-0">
-          {analyzing ? <><Loader2 size={13} className="animate-spin" />Scanning…</> : <><ShieldAlert size={13} />Run Scan</>}
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          {visibleConflicts.length > 0 && (
+            <button
+              onClick={() => window.print()}
+              className="btn-ghost flex items-center gap-2 flex-shrink-0"
+              style={{ ...mono, fontSize: '0.65rem' }}
+            >
+              <Download size={12} />
+              EXPORT PDF
+            </button>
+          )}
+          <button onClick={analyze} disabled={analyzing || files.length < 2} className="btn-primary flex items-center gap-2 flex-shrink-0">
+            {analyzing ? <><Loader2 size={13} className="animate-spin" />Scanning…</> : <><ShieldAlert size={13} />Run Scan</>}
+          </button>
+        </div>
       </div>
 
       {/* Stats bar */}
@@ -1267,6 +1443,12 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
           <FileSearch size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
           <p style={{ ...mono, fontSize: '0.68rem', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>UPLOAD AT LEAST 2 DOCUMENTS</p>
         </div>
+      ) : hasScanned && conflicts.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 space-y-2 text-center">
+          <CheckCircle2 size={28} style={{ color: '#34d399' }} />
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>No conflicts found</p>
+          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>Your documents appear to be consistent with each other.</p>
+        </div>
       ) : conflicts.length === 0 && !analyzing ? (
         <div className="flex flex-col items-center justify-center py-20" style={{ border: '1px solid var(--border)' }}>
           <ShieldAlert size={32} className="mb-4" style={{ color: 'var(--text-secondary)' }} />
@@ -1277,10 +1459,40 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
       ) : (
         /* Conflict cards */
         <div className="space-y-2">
-          {conflicts.map((c, i) => {
+          {/* Print header — hidden normally, visible via @media print */}
+          <div id="print-header" style={{ display: 'none' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem', color: 'black' }}>
+              Conflict Analysis Report
+            </h1>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+              Project: {currentProject?.name} — {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} found
+            </p>
+            <hr style={{ margin: '1rem 0', borderColor: '#ccc' }} />
+          </div>
+          {/* Status filter */}
+          {conflicts.length > 0 && (
+            <div className="flex items-center gap-2 mb-3">
+              {(['all', 'open', 'resolved', 'dismissed'] as const).map(f => (
+                <button key={f} onClick={() => setStatusFilter(f)}
+                  className="text-xs px-2 py-1 transition-colors"
+                  style={{
+                    fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.06em',
+                    border: '1px solid var(--border)',
+                    backgroundColor: statusFilter === f ? 'var(--accent)' : 'transparent',
+                    color: statusFilter === f ? 'var(--accent-dark, #000)' : 'var(--text-secondary)',
+                  }}>
+                  {f.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
+          {visibleConflicts.map((c, i) => {
             const s = SEV[c.severity] ?? SEV.medium
             return (
-              <div key={c.id} style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
+              <div key={c.id} className="conflict-card-print" style={{ borderLeft: `3px solid ${s.accent}`, border: `1px solid ${s.border}`, borderLeftWidth: 3 }}>
                 {/* Number + title + badge */}
                 <div className="flex items-stretch" style={{ borderBottom: `1px solid ${s.border}` }}>
                   <div className="flex items-center justify-center px-4" style={{ borderRight: `1px solid ${s.border}`, minWidth: 52, backgroundColor: s.bg }}>
@@ -1312,6 +1524,54 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
                     ))}
                   </div>
                 )}
+                {/* Conflict status controls */}
+                {(() => {
+                  const hash = conflictHash(c.title)
+                  const status = conflictStatusMap[hash] || 'open'
+                  const projectId = parseInt(currentProject?.id ?? '0')
+                  return (
+                    <div className="flex items-center gap-2 px-4 py-2"
+                      style={{ borderTop: `1px solid ${s.border}` }}>
+                      <span className="text-xs flex-1" style={{
+                        fontFamily: 'var(--font-mono)', fontSize: '0.6rem', letterSpacing: '0.06em',
+                        color: status === 'resolved' ? '#34d399' : status === 'dismissed' ? 'var(--text-secondary)' : '#f87171',
+                      }}>
+                        {status.toUpperCase()}
+                      </span>
+                      {status !== 'resolved' && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'resolved')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'resolved' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid rgba(52,211,153,0.3)', color: '#34d399', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(52,211,153,0.1)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}>
+                          RESOLVE
+                        </button>
+                      )}
+                      {status !== 'dismissed' && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'dismissed')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'dismissed' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}
+                          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}
+                          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent' }}>
+                          DISMISS
+                        </button>
+                      )}
+                      {(status === 'resolved' || status === 'dismissed') && (
+                        <button onClick={async () => {
+                          await api.conflictStatuses.set(projectId, hash, 'open')
+                          setConflictStatusMap(prev => ({ ...prev, [hash]: 'open' }))
+                        }} className="text-xs px-2 py-1 transition-colors"
+                          style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: '0.6rem' }}>
+                          REOPEN
+                        </button>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}
@@ -1351,7 +1611,7 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
       </div>
 
       {/* Doc selectors */}
-      <div className="grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
+      <div className="no-print grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
         {[
           { val: f1, other: f2, set: setF1, label: 'DOCUMENT A' },
           { val: f2, other: f1, set: setF2, label: 'DOCUMENT B' },
@@ -1368,9 +1628,21 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
         ))}
       </div>
 
-      <button onClick={runCompare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
-        {comparing ? <><Loader2 size={13} className="animate-spin" />Comparing…</> : <><GitCompare size={13} />Run Comparison</>}
-      </button>
+      <div className="flex items-center gap-2 no-print">
+        <button onClick={runCompare} disabled={!f1 || !f2 || comparing || !currentProject} className="btn-primary flex items-center gap-2">
+          {comparing ? <><Loader2 size={13} className="animate-spin" />Comparing…</> : <><GitCompare size={13} />Run Comparison</>}
+        </button>
+        {result && (
+          <button
+            onClick={() => window.print()}
+            className="btn-ghost flex items-center gap-2"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem' }}
+          >
+            <Download size={12} />
+            EXPORT PDF
+          </button>
+        )}
+      </div>
 
       {error && (
         <div className="px-4 py-3 text-xs" style={{ color: '#ef4444', backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', ...mono }}>
@@ -1387,6 +1659,19 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
 
       {result && (
         <div style={{ border: '1px solid var(--border)' }}>
+          {/* Print header — hidden normally, shown via @media print */}
+          <div id="print-header" style={{ display: 'none' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem', color: 'black' }}>
+              Document Comparison Report
+            </h1>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+              {result.doc1_name} vs {result.doc2_name}
+            </p>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <hr style={{ margin: '1rem 0', borderColor: '#ccc' }} />
+          </div>
           {/* Doc header */}
           <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
             <span style={{ ...mono, fontSize: '0.63rem', color: 'var(--text-primary)', border: '1px solid var(--border)', padding: '2px 8px' }}>{result.doc1_name}</span>
@@ -1655,6 +1940,49 @@ function SettingsTab({ selectedModel, onModelChange }: {
   )
 }
 
+// ─── Citation renderer ──────────────────────────────────────
+function MessageContent({ content }: { content: string }) {
+  const parts = content.split(/(\[src:[^\]]+\])/g)
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = part.match(/^\[src:([^\]]+)\]$/)
+        if (m) {
+          return (
+            <span key={i} style={{
+              display: 'inline-flex', alignItems: 'center', gap: '3px',
+              padding: '1px 6px', margin: '0 2px',
+              backgroundColor: 'rgba(74,222,128,0.1)',
+              border: '1px solid rgba(74,222,128,0.25)',
+              fontSize: '0.65rem', fontFamily: 'var(--font-mono)',
+              color: 'var(--accent)', verticalAlign: 'middle',
+              lineHeight: 1.4,
+            }}>
+              <FileText size={9} />
+              {m[1]}
+            </span>
+          )
+        }
+        return (
+          <ReactMarkdown key={i} components={{
+            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+            strong: ({ children }) => <strong className="font-bold">{children}</strong>,
+            ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+            ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+            li: ({ children }) => <li className="ml-2">{children}</li>,
+            code: ({ children }) => <code className="px-1.5 py-0.5 text-xs" style={{ backgroundColor: 'var(--surface)', fontFamily: 'var(--font-mono)' }}>{children}</code>,
+            h2: ({ children }) => <h2 className="font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+            h3: ({ children }) => <h3 className="font-semibold mb-1 mt-2 first:mt-0">{children}</h3>,
+            blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 my-2 italic" style={{ borderColor: 'var(--accent)' }}>{children}</blockquote>,
+          }}>
+            {part}
+          </ReactMarkdown>
+        )
+      })}
+    </>
+  )
+}
+
 // ─── Main Dashboard ─────────────────────────────────────────
 export default function DashboardPage() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -1662,7 +1990,6 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([])
   const [current, setCurrent] = useState<Project | null>(null)
   const [files, setFiles] = useState<UploadedFile[]>([])
-  const [uploading, setUploading] = useState(false)
   const [showNew, setShowNew] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
   const [toDelete, setToDelete] = useState<Project | null>(null)
@@ -1672,6 +1999,16 @@ export default function DashboardPage() {
   const [chatThreads, setChatThreads] = useState<api.ChatThread[]>([])
   const [currentChatId, setCurrentChatId] = useState<number | null>(null)
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o-mini')
+  const [projectAnalytics, setProjectAnalytics] = useState<api.ProjectAnalytics | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<api.SearchResult[] | null>(null)
+  const [uploadQueue, setUploadQueue] = useState<Array<{
+    name: string
+    status: 'pending' | 'uploading' | 'done' | 'error'
+    error?: string
+  }>>([])
+  const uploadClearTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
 
   useEffect(() => { loadProjects() }, [])
   useEffect(() => {
@@ -1681,8 +2018,32 @@ export default function DashboardPage() {
     if (savedModel) setSelectedModel(savedModel)
   }, [])
   useEffect(() => {
-    if (current) { loadFiles(); setChatLoaded((p) => ({ ...p, [current.id]: false })); setChatThreads([]); setCurrentChatId(null) }
-    else { setFiles([]); setChatMsgs([]); setChatThreads([]); setCurrentChatId(null) }
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [sidebarOpen])
+  useEffect(() => {
+    if (current) {
+      loadFiles()
+      setChatLoaded((p) => ({ ...p, [current.id]: false }))
+      setChatThreads([])
+      setCurrentChatId(null)
+      setProjectAnalytics(null)
+      setSearchQuery('')
+      setSearchResults(null)
+      api.analytics.get(parseInt(current.id)).then(setProjectAnalytics).catch(() => {})
+    } else {
+      setFiles([])
+      setChatMsgs([])
+      setChatThreads([])
+      setCurrentChatId(null)
+      setProjectAnalytics(null)
+      setSearchQuery('')
+      setSearchResults(null)
+    }
   }, [current])
   useEffect(() => {
     if (tab === 'chat' && current && !chatLoaded[current.id]) loadChatThreads()
@@ -1711,6 +2072,7 @@ export default function DashboardPage() {
         type: d.document_type ?? 'unknown',
         size: formatSize(d.file_size ?? 0),
         uploadedAt: d.created_at?.split('T')[0] ?? '—',
+        parseQuality: d.parse_quality ?? 'good',
       })))
     } catch (e) { console.error(e) }
   }
@@ -1804,17 +2166,50 @@ export default function DashboardPage() {
     setShowDelete(false); setToDelete(null)
   }
 
-  const handleUpload = async (fileList: FileList) => {
-    if (!current) return
-    setUploading(true)
-    for (const file of Array.from(fileList)) {
+  const handleBulkUpload = async (files: FileList | null) => {
+    if (!files || !files.length || !current) return
+    const projectId = parseInt(current.id)
+    const projectIdStr = current.id
+    const fileArray = Array.from(files)
+    const queue = fileArray.map(f => ({ name: f.name, status: 'pending' as const }))
+    setUploadQueue(queue)
+
+    for (let i = 0; i < fileArray.length; i++) {
+      setUploadQueue(prev => prev.map((item, idx) =>
+        idx === i ? { ...item, status: 'uploading' } : item
+      ))
       try {
-        const doc = await api.documents.upload(parseInt(current.id), file)
-        setFiles((p) => [{ id: doc.id.toString(), name: doc.original_filename, type: doc.document_type ?? 'unknown', size: formatSize(doc.file_size ?? 0), uploadedAt: new Date().toISOString().split('T')[0] }, ...p])
-        setProjects((p) => p.map((pr) => pr.id === current.id ? { ...pr, fileCount: pr.fileCount + 1 } : pr))
-      } catch (e) { console.error(e) }
+        const doc = await api.documents.upload(projectId, fileArray[i])
+        setFiles(prev => [{
+          id: doc.id.toString(),
+          name: doc.original_filename,
+          type: doc.document_type ?? 'unknown',
+          size: formatSize(doc.file_size ?? 0),
+          uploadedAt: new Date().toISOString().split('T')[0],
+          parseQuality: doc.parse_quality ?? 'good',
+        }, ...prev])
+        setProjects(prev => prev.map(pr =>
+          pr.id === projectIdStr ? { ...pr, fileCount: pr.fileCount + 1 } : pr
+        ))
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? { ...item, status: 'done' } : item
+        ))
+      } catch (err) {
+        setUploadQueue(prev => prev.map((item, idx) =>
+          idx === i ? {
+            ...item, status: 'error',
+            error: err instanceof Error ? err.message : 'Upload failed',
+          } : item
+        ))
+      }
     }
-    setUploading(false)
+
+    // Refresh analytics after all uploads complete
+    api.analytics.get(projectId).then(setProjectAnalytics).catch(() => {})
+
+    // Auto-clear queue after 4 seconds
+    clearTimeout(uploadClearTimerRef.current)
+    uploadClearTimerRef.current = setTimeout(() => setUploadQueue([]), 4000)
   }
 
   const handleDeleteFile = async (id: string) => {
@@ -1825,6 +2220,15 @@ export default function DashboardPage() {
       setProjects((p) => p.map((pr) => pr.id === current.id ? { ...pr, fileCount: Math.max(0, pr.fileCount - 1) } : pr))
     } catch (e) { console.error(e) }
   }
+
+  const handleSearch = useCallback(async (q: string) => {
+    setSearchQuery(q)
+    if (!q.trim() || !current) { setSearchResults(null); return }
+    try {
+      const res = await api.documents.search(parseInt(current.id), q)
+      setSearchResults(res.results)
+    } catch { setSearchResults([]) }
+  }, [current])
 
   const handleSendMessage = async (msg: string, referencedChatId?: number, useMemory = true) => {
     if (!current) return
@@ -1845,13 +2249,13 @@ export default function DashboardPage() {
 
   const renderContent = () => {
     switch (tab) {
-      case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} />
-      case 'files':     return <FilesTab files={files} onUpload={handleUpload} onDelete={handleDeleteFile} isUploading={uploading} />
+      case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
+      case 'files':     return <FilesTab files={files} onUpload={handleBulkUpload} onDelete={handleDeleteFile} isUploading={uploadQueue.some(f => f.status === 'uploading')} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
-      default:          return <OverviewTab project={current} files={files} setTab={changeTab} />
+      default:          return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
     }
   }
 
@@ -1916,6 +2320,48 @@ export default function DashboardPage() {
           {renderContent()}
         </div>
       </main>
+
+      {/* Floating upload progress panel */}
+      {uploadQueue.length > 0 && (
+        <div className="fixed bottom-4 right-4 w-72 z-50 shadow-xl"
+          style={{ backgroundColor: 'var(--card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between px-4 py-2.5"
+            style={{ borderBottom: '1px solid var(--border)' }}>
+            <span className="text-xs font-semibold uppercase"
+              style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.06em' }}>
+              {uploadQueue.filter(f => f.status === 'done').length}/{uploadQueue.length} Uploaded
+            </span>
+            {uploadQueue.every(f => f.status === 'done' || f.status === 'error') && (
+              <button onClick={() => setUploadQueue([])} style={{ color: 'var(--text-secondary)' }}>
+                <X size={12} />
+              </button>
+            )}
+          </div>
+          <div className="p-2 space-y-1 max-h-52 overflow-y-auto">
+            {uploadQueue.map((item, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-2 py-1.5">
+                {item.status === 'uploading' && (
+                  <Loader2 size={12} className="animate-spin flex-shrink-0" style={{ color: 'var(--accent)' }} />
+                )}
+                {item.status === 'done' && (
+                  <CheckCircle2 size={12} className="flex-shrink-0" style={{ color: '#34d399' }} />
+                )}
+                {item.status === 'error' && (
+                  <X size={12} className="flex-shrink-0" style={{ color: '#f87171' }} />
+                )}
+                {item.status === 'pending' && (
+                  <div className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: 'var(--border)' }} />
+                )}
+                <span className="text-xs truncate flex-1"
+                  style={{ color: item.status === 'error' ? '#f87171' : 'var(--text-secondary)' }}>
+                  {item.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

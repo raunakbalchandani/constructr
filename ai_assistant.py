@@ -734,7 +734,9 @@ Brief description of the document's purpose
 Project documents:
 {context}
 
-Use the documents if the question relates to them. If it doesn't, answer from your knowledge and ignore the document context. For drawings/images: look for callouts, dimensions, annotations, symbols. If a COMPUTER VISION RESULT is above, it is authoritative — cite it."""
+Use the documents if the question relates to them. If it doesn't, answer from your knowledge and ignore the document context. For drawings/images: look for callouts, dimensions, annotations, symbols. If a COMPUTER VISION RESULT is above, it is authoritative — cite it.
+
+CITATION RULE: Whenever you state a fact that comes from a specific document, append a citation immediately after the statement using this exact format: [src:FILENAME] — for example: [src:contract.pdf] or [src:specifications.docx]. Cite the most specific document. If a fact spans multiple documents, cite each with a separate marker. Do not cite for general knowledge or conversational responses."""
 
                 if images_by_doc:
                     try:

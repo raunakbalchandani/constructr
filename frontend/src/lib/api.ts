@@ -68,7 +68,16 @@ export interface Document {
   original_filename: string
   file_size: number
   document_type: string
+  parse_quality?: string
   created_at: string
+}
+
+export interface SearchResult {
+  doc_id: number
+  filename: string
+  document_type: string
+  snippet: string
+  match_count: number
 }
 
 export const documents = {
@@ -92,6 +101,22 @@ export const documents = {
   },
   delete: (projectId: number, documentId: number) =>
     request<void>(`/projects/${projectId}/documents/${documentId}`, { method: 'DELETE' }),
+  search: (projectId: number, q: string) =>
+    request<{ results: SearchResult[] }>(`/projects/${projectId}/search?q=${encodeURIComponent(q)}`),
+}
+
+export interface ProjectAnalytics {
+  doc_count: number
+  total_words: number
+  type_breakdown: Record<string, number>
+  chat_count: number
+  message_count: number
+  memory_fact_count: number
+}
+
+export const analytics = {
+  get: (projectId: number) =>
+    request<ProjectAnalytics>(`/projects/${projectId}/analytics`),
 }
 
 // Chat
@@ -176,4 +201,14 @@ export const chat = {
       method: 'POST',
       body: JSON.stringify({ doc_id_1: docId1, doc_id_2: docId2 }),
     }),
+}
+
+export const conflictStatuses = {
+  getAll: (projectId: number) =>
+    request<Record<string, string>>(`/projects/${projectId}/conflict-statuses`),
+  set: (projectId: number, conflictHash: string, status: 'open' | 'resolved' | 'dismissed') =>
+    request<{ conflict_hash: string; status: string }>(
+      `/projects/${projectId}/conflict-statuses/${conflictHash}`,
+      { method: 'POST', body: JSON.stringify({ status }) }
+    ),
 }

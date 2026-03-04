@@ -26,7 +26,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT, CHAT_HISTORY_WINDOW
-from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, init_db
+from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, ConflictStatus, init_db
 from backend.auth import (
     get_current_user, 
     create_access_token, 
@@ -118,6 +118,7 @@ class DocumentResponse(BaseModel):
     original_filename: str
     file_size: int
     document_type: Optional[str]
+    parse_quality: Optional[str] = "good"
     created_at: datetime
 
     class Config:
@@ -209,6 +210,15 @@ class CompareResponse(BaseModel):
     doc2_name: str
 
 
+class ProjectAnalyticsResponse(BaseModel):
+    doc_count: int
+    total_words: int
+    type_breakdown: dict
+    chat_count: int
+    message_count: int
+    memory_fact_count: int
+
+
 # Initialize database on startup
 @app.on_event("startup")
 async def startup():
@@ -218,6 +228,13 @@ async def startup():
     with engine.connect() as conn:
         try:
             conn.execute(__import__('sqlalchemy').text("ALTER TABLE chats ADD COLUMN title VARCHAR(255)"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
+        try:
+            conn.execute(__import__('sqlalchemy').text(
+                "ALTER TABLE documents ADD COLUMN parse_quality VARCHAR(20) DEFAULT 'good'"
+            ))
             conn.commit()
         except Exception:
             pass  # Column already exists
@@ -357,6 +374,56 @@ async def delete_project(
     return {"message": "Project deleted"}
 
 
+@app.get("/projects/{project_id}/analytics", response_model=ProjectAnalyticsResponse)
+async def get_project_analytics(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Return analytics summary for a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    docs = db.query(Document).filter(Document.project_id == project_id).all()
+
+    type_breakdown: dict = {}
+    total_words = 0
+    for doc in docs:
+        t = doc.document_type or 'unknown'
+        type_breakdown[t] = type_breakdown.get(t, 0) + 1
+        if doc.extracted_text:
+            total_words += len(doc.extracted_text.split())
+
+    chat_count = db.query(Chat).filter(
+        Chat.project_id == project_id,
+        Chat.user_id == current_user.id
+    ).count()
+
+    message_count = (
+        db.query(ChatMessage)
+        .join(Chat, Chat.id == ChatMessage.chat_id)
+        .filter(Chat.project_id == project_id, Chat.user_id == current_user.id)
+        .count()
+    )
+
+    memory_count = db.query(ProjectMemory).filter(
+        ProjectMemory.project_id == project_id
+    ).count()
+
+    return {
+        "doc_count": len(docs),
+        "total_words": total_words,
+        "type_breakdown": type_breakdown,
+        "chat_count": chat_count,
+        "message_count": message_count,
+        "memory_fact_count": memory_count,
+    }
+
+
 # ============ Document Routes ============
 
 @app.get("/projects/{project_id}/documents", response_model=List[DocumentResponse])
@@ -414,14 +481,15 @@ async def upload_document(
     
     # Extract text if parser available
     extracted_text = None
+    parse_result = {}
     if DocumentParser:
         try:
             parser = DocumentParser()
-            result = parser.parse_document(file_info["file_path"])
-            extracted_text = result.get('text_content', '')
+            parse_result = parser.parse_document(file_info["file_path"])
+            extracted_text = parse_result.get('text_content', '')
             if not extracted_text:
                 # Try alternative key
-                extracted_text = result.get('text', '') or result.get('content', '')
+                extracted_text = parse_result.get('text', '') or parse_result.get('content', '')
         except Exception as e:
             # Log error but continue
             logger.warning(f"Text extraction failed: {e}")
@@ -442,7 +510,12 @@ async def upload_document(
         file_size=file_info["file_size"],
         mime_type=file_info["mime_type"],
         document_type=doc_type,
-        extracted_text=extracted_text
+        extracted_text=extracted_text,
+        parse_quality=(
+            parse_result.get('parse_quality', 'good')
+            if parse_result and 'parse_quality' in parse_result
+            else ('empty' if not extracted_text else 'good')
+        ),
     )
     db.add(document)
     db.commit()
@@ -514,6 +587,55 @@ async def delete_document(
     db.delete(document)
     db.commit()
     return {"message": "Document deleted"}
+
+
+@app.get("/projects/{project_id}/search")
+async def search_documents(
+    project_id: int,
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Full-text search across document content in a project."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not q or len(q.strip()) < 2:
+        return {"results": []}
+
+    term = q.strip().lower()
+    docs = db.query(Document).filter(
+        Document.project_id == project_id,
+        Document.extracted_text.isnot(None)
+    ).all()
+
+    results = []
+    for doc in docs:
+        text = (doc.extracted_text or "").lower()
+        idx = text.find(term)
+        if idx == -1:
+            continue
+        start = max(0, idx - 80)
+        end = min(len(text), idx + len(term) + 80)
+        snippet = (doc.extracted_text or "")[start:end].strip()
+        if start > 0:
+            snippet = "…" + snippet
+        if end < len(doc.extracted_text or ""):
+            snippet = snippet + "…"
+        results.append({
+            "doc_id": doc.id,
+            "filename": doc.original_filename,
+            "document_type": doc.document_type or "unknown",
+            "snippet": snippet,
+            "match_count": text.count(term),
+        })
+
+    results.sort(key=lambda r: r["match_count"], reverse=True)
+    return {"results": results[:20]}
 
 
 # ============ Chat Routes ============
@@ -1004,6 +1126,64 @@ async def analyze_conflicts(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Conflict analysis error: {str(e)}")
+
+
+@app.get("/projects/{project_id}/conflict-statuses")
+async def get_conflict_statuses(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all conflict status overrides for a project. Returns dict of hash->status."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    statuses = db.query(ConflictStatus).filter(
+        ConflictStatus.project_id == project_id
+    ).all()
+    return {s.conflict_hash: s.status for s in statuses}
+
+
+@app.post("/projects/{project_id}/conflict-statuses/{conflict_hash}")
+async def set_conflict_status(
+    project_id: int,
+    conflict_hash: str,
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Set open/resolved/dismissed status for a specific conflict."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    new_status = body.get("status", "open")
+    if new_status not in ("open", "resolved", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be open, resolved, or dismissed")
+
+    existing = db.query(ConflictStatus).filter(
+        ConflictStatus.project_id == project_id,
+        ConflictStatus.conflict_hash == conflict_hash
+    ).first()
+
+    if existing:
+        existing.status = new_status
+        existing.updated_at = datetime.utcnow()
+    else:
+        db.add(ConflictStatus(
+            project_id=project_id,
+            conflict_hash=conflict_hash,
+            status=new_status
+        ))
+    db.commit()
+    return {"conflict_hash": conflict_hash, "status": new_status}
 
 
 @app.post("/projects/{project_id}/compare", response_model=CompareResponse)
