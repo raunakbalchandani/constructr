@@ -765,7 +765,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
               <span />
-              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}></span>
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>PREVIEW</span>
             </div>
             {shown.map((f) => {
               const c = cat(f.type)
