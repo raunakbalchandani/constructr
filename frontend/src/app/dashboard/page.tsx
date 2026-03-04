@@ -357,9 +357,6 @@ function OverviewTab({ project, files, setTab, analytics }: {
     )
   }
 
-  // File type breakdown
-  const typeCounts: Record<string, number> = {}
-  files.forEach((f) => { typeCounts[f.type] = (typeCounts[f.type] ?? 0) + 1 })
 
 
   return (
@@ -416,25 +413,6 @@ function OverviewTab({ project, files, setTab, analytics }: {
           )}
         </>
       )}
-
-      {/* Quick stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-        {[
-          { label: 'Total Files', value: files.length.toString(), action: () => setTab('files') },
-          { label: 'File Types', value: Object.keys(typeCounts).length.toString(), action: () => setTab('files') },
-          { label: 'AI Ready', value: project ? 'Yes' : '—', action: () => setTab('chat') },
-          { label: 'Conflicts', value: '—', action: () => setTab('conflicts') },
-        ].map(({ label, value, action }) => (
-          <button key={label} onClick={action}
-            className="p-6 text-left transition-colors group"
-            style={{ backgroundColor: 'var(--card)' }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--surface)' }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'var(--card)' }}>
-            <p className="label-mono mb-2" style={{ fontFamily: 'var(--font-mono)' }}>{label}</p>
-            <p className="text-3xl font-black uppercase" style={{ fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>{value}</p>
-          </button>
-        ))}
-      </div>
 
       {/* Quick actions */}
       <div>
