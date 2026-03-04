@@ -9,6 +9,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
 import html
+import json
 import os
 import sys
 import logging
@@ -1497,8 +1498,7 @@ def _render_ifc_html(file_path: str, name: str, preview_url: str) -> str:
   <p class="meta-file">{safe_name}</p>
 </div>"""
     except Exception as e:
-        import html as _h
-        safe_e = _h.escape(str(e))
+        safe_e = html_mod.escape(str(e))
         metadata_html = f"""
 <div class="meta-panel">
   <div class="meta-header">
@@ -1601,7 +1601,7 @@ def _render_ifc_html(file_path: str, name: str, preview_url: str) -> str:
     viewer.grid.setGrid();
     viewer.IFC.setWasmPath('https://unpkg.com/web-ifc@0.0.44/');
 
-    await viewer.IFC.loadIfcUrl('{preview_url}', true, (progress) => {{
+    await viewer.IFC.loadIfcUrl({json.dumps(preview_url)}, true, (progress) => {{
       if (progress.total > 0) {{
         const pct = Math.round((progress.loaded / progress.total) * 100);
         document.querySelector('#loading p').textContent = `LOADING 3D MODEL… ${{pct}}%`;
