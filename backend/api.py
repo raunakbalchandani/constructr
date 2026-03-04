@@ -1444,7 +1444,7 @@ def _render_dxf_html(file_path: str, name: str) -> str:
 </style>
 <div class="svg-wrap">{svg_str}</div>"""
     except Exception as e:
-        body = f"<p style='color:#ef4444'>Could not render drawing: {e}</p><p style='color:#7a7268;font-size:0.85rem;margin-top:8px'>DWG files may require conversion. Try re-exporting as DXF.</p>"
+        body = f"<p style='color:#ef4444'>Could not render drawing: {html.escape(str(e))}</p><p style='color:#7a7268;font-size:0.85rem;margin-top:8px'>DWG files may require conversion. Try re-exporting as DXF.</p>"
     return _preview_page(name, body)
 
 
