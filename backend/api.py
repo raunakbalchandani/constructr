@@ -3,7 +3,7 @@ FastAPI REST API
 """
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -28,9 +28,10 @@ from starlette.requests import Request
 from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT, CHAT_HISTORY_WINDOW
 from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, ConflictStatus, init_db
 from backend.auth import (
-    get_current_user, 
-    create_access_token, 
-    register_user, 
+    get_current_user,
+    get_user_from_token_param,
+    create_access_token,
+    register_user,
     authenticate_user,
     get_password_hash
 )
@@ -554,6 +555,79 @@ async def download_document(
         filename=document.original_filename,
         media_type=document.mime_type
     )
+
+
+@app.get("/projects/{project_id}/documents/{document_id}/preview")
+async def preview_document(
+    project_id: int,
+    document_id: int,
+    token: str,
+    raw: bool = False,
+    current_user: User = Depends(get_user_from_token_param),
+    db: Session = Depends(get_db)
+):
+    """Render a document preview in the browser."""
+    project = db.query(Project).filter(
+        Project.id == project_id,
+        Project.owner_id == current_user.id
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.project_id == project_id
+    ).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    file_path = document.file_path
+    original_name = document.original_filename or ""
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+
+    # raw=True: serve the raw file bytes (used by IFC 3D viewer to load the model)
+    if raw:
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return Response(content=content, media_type="application/octet-stream")
+
+    # PDF — serve directly, browser renders natively
+    if ext == "pdf":
+        return FileResponse(file_path, media_type="application/pdf", headers={
+            "Content-Disposition": f'inline; filename="{original_name}"'
+        })
+
+    # Images — serve directly
+    if ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
+        return FileResponse(file_path, media_type=mime, headers={
+            "Content-Disposition": f'inline; filename="{original_name}"'
+        })
+
+    # DOCX / DOC
+    if ext in ("docx", "doc"):
+        html = _render_docx_html(file_path, original_name)
+        return HTMLResponse(content=html)
+
+    # XLSX / XLS / CSV
+    if ext in ("xlsx", "xls", "csv"):
+        html = _render_spreadsheet_html(file_path, original_name, ext)
+        return HTMLResponse(content=html)
+
+    # DWG / DXF
+    if ext in ("dxf", "dwg"):
+        html = _render_dxf_html(file_path, original_name)
+        return HTMLResponse(content=html)
+
+    # IFC / BIM — handled in Task 2
+    if ext in ("ifc",):
+        preview_url = f"/api/projects/{project_id}/documents/{document_id}/preview?token={token}&raw=true"
+        html = _render_ifc_html(file_path, original_name, preview_url)
+        return HTMLResponse(content=html)
+
+    # Fallback
+    return HTMLResponse(content=_unsupported_html(original_name))
 
 
 @app.delete("/projects/{project_id}/documents/{document_id}")
@@ -1239,6 +1313,143 @@ async def compare_documents(
         raise HTTPException(status_code=500, detail=f"Compare error: {str(e)}")
 
 
+
+
+# ---------------------------------------------------------------------------
+# Preview helper functions
+# ---------------------------------------------------------------------------
+
+def _preview_page(title: str, body: str, extra_head: str = "") -> str:
+    """Wrap content in a clean preview HTML page."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+{extra_head}
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #f8f7f3; color: #1c1b18; padding: 0; }}
+  .header {{ background: #1c1b18; color: #f0ede4; padding: 12px 24px;
+             display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 10; }}
+  .header .filename {{ font-size: 0.8rem; font-family: 'SF Mono', monospace;
+                       opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+  .header .badge {{ font-size: 0.6rem; font-family: monospace; letter-spacing: 0.1em;
+                    padding: 2px 8px; border: 1px solid rgba(255,255,255,0.2);
+                    color: #f5c800; border-color: rgba(245,200,0,0.4); flex-shrink: 0; }}
+  .content {{ max-width: 900px; margin: 0 auto; padding: 32px 24px; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="badge">FOREPERSON</span>
+  <span class="filename">{title}</span>
+</div>
+<div class="content">{body}</div>
+</body>
+</html>"""
+
+
+def _render_docx_html(file_path: str, name: str) -> str:
+    try:
+        from docx import Document as DocxDocument
+        doc = DocxDocument(file_path)
+        parts = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if not text:
+                parts.append("<br>")
+                continue
+            style = para.style.name if para.style else ""
+            if style.startswith("Heading 1"):
+                parts.append(f"<h1 style='font-size:1.6rem;font-weight:700;margin:1.5rem 0 0.5rem'>{text}</h1>")
+            elif style.startswith("Heading 2"):
+                parts.append(f"<h2 style='font-size:1.2rem;font-weight:600;margin:1.2rem 0 0.4rem'>{text}</h2>")
+            elif style.startswith("Heading 3"):
+                parts.append(f"<h3 style='font-size:1rem;font-weight:600;margin:1rem 0 0.3rem'>{text}</h3>")
+            else:
+                parts.append(f"<p style='margin:0.4rem 0;line-height:1.7;font-size:0.92rem'>{text}</p>")
+        body = "\n".join(parts) or "<p style='color:#999'>Document appears to be empty.</p>"
+    except Exception as e:
+        body = f"<p style='color:#ef4444'>Could not render document: {e}</p>"
+    return _preview_page(name, body)
+
+
+def _render_spreadsheet_html(file_path: str, name: str, ext: str) -> str:
+    try:
+        import pandas as pd
+        if ext == "csv":
+            df = pd.read_csv(file_path, nrows=500)
+        else:
+            df = pd.read_excel(file_path, nrows=500)
+        table_html = df.to_html(
+            index=False,
+            border=0,
+            classes="data-table",
+            na_rep="",
+        )
+        body = f"""
+<style>
+  .data-table {{ border-collapse: collapse; width: 100%; font-size: 0.8rem; }}
+  .data-table th {{ background: #1c1b18; color: #f0ede4; padding: 8px 12px;
+                    text-align: left; font-family: monospace; font-size: 0.7rem;
+                    letter-spacing: 0.06em; white-space: nowrap; }}
+  .data-table td {{ padding: 7px 12px; border-bottom: 1px solid #e0ddd4;
+                    color: #1c1b18; vertical-align: top; }}
+  .data-table tr:hover td {{ background: #f0ede4; }}
+  .row-count {{ font-family: monospace; font-size: 0.7rem; color: #7a7268;
+                margin-bottom: 12px; }}
+</style>
+<p class="row-count">Showing {min(len(df), 500)} rows × {len(df.columns)} columns</p>
+<div style="overflow-x:auto">{table_html}</div>"""
+    except Exception as e:
+        body = f"<p style='color:#ef4444'>Could not render spreadsheet: {e}</p>"
+    return _preview_page(name, body)
+
+
+def _render_dxf_html(file_path: str, name: str) -> str:
+    try:
+        import ezdxf
+        from ezdxf import recover as ezdxf_recover
+        import xml.etree.ElementTree as ET
+        try:
+            doc, _ = ezdxf_recover.readfile(file_path)
+        except Exception:
+            doc = ezdxf.readfile(file_path)
+        from ezdxf.addons.drawing import RenderContext, Frontend
+        from ezdxf.addons.drawing.svg import SVGBackend
+        context = RenderContext(doc)
+        backend = SVGBackend()
+        Frontend(context, backend).draw_layout(doc.modelspace())
+        svg_xml = backend.get_xml_root()
+        svg_str = ET.tostring(svg_xml, encoding="unicode")
+        body = f"""
+<style>
+  .svg-wrap {{ background: white; border: 1px solid #e0ddd4; padding: 16px;
+              border-radius: 2px; overflow: auto; }}
+  .svg-wrap svg {{ max-width: 100%; height: auto; display: block; }}
+</style>
+<div class="svg-wrap">{svg_str}</div>"""
+    except Exception as e:
+        body = f"<p style='color:#ef4444'>Could not render drawing: {e}</p><p style='color:#7a7268;font-size:0.85rem;margin-top:8px'>DWG files may require conversion. Try re-exporting as DXF.</p>"
+    return _preview_page(name, body)
+
+
+def _render_ifc_html(file_path: str, name: str, preview_url: str) -> str:
+    # Placeholder — implemented in Task 2
+    return _preview_page(name, "<p>IFC preview coming soon.</p>")
+
+
+def _unsupported_html(name: str) -> str:
+    body = """
+<div style='text-align:center;padding:60px 0'>
+  <p style='font-size:2rem;margin-bottom:16px'>📄</p>
+  <p style='font-size:1rem;font-weight:600;margin-bottom:8px'>Preview not available</p>
+  <p style='color:#7a7268;font-size:0.85rem'>This file type cannot be previewed in the browser.</p>
+</div>"""
+    return _preview_page(name, body)
 
 
 # Run with: uvicorn backend.api:app --reload

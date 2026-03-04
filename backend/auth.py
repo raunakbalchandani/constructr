@@ -81,7 +81,28 @@ async def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         raise credentials_exception
-    
+
+    return user
+
+
+async def get_user_from_token_param(
+    token: str,
+    db: Session = Depends(get_db)
+) -> User:
+    """Authenticate via ?token= query param (for file preview in new tab)."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+    )
+    payload = decode_token(token)
+    if payload is None:
+        raise credentials_exception
+    user_id: int = payload.get("sub")
+    if user_id is None:
+        raise credentials_exception
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if user is None:
+        raise credentials_exception
     return user
 
 
