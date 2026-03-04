@@ -700,7 +700,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                 </button>
                 {currentProject && (
                   <button
-                    onClick={() => window.open(previewUrl(parseInt(currentProject.id), parseInt(f.id)), '_blank')}
+                    onClick={() => { const pid = parseInt(currentProject.id, 10); const did = parseInt(f.id, 10); if (!isNaN(pid) && !isNaN(did)) window.open(previewUrl(pid, did), '_blank', 'noopener,noreferrer') }}
                     className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
                     style={{ color: 'var(--text-secondary)' }}
                     title="Preview"
@@ -764,8 +764,8 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
-              <span />
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>PREVIEW</span>
+              <span />
             </div>
             {shown.map((f) => {
               const c = cat(f.type)
@@ -805,7 +805,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                   <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
                   {currentProject ? (
                     <button
-                      onClick={() => window.open(previewUrl(parseInt(currentProject.id), parseInt(f.id)), '_blank')}
+                      onClick={() => { const pid = parseInt(currentProject.id, 10); const did = parseInt(f.id, 10); if (!isNaN(pid) && !isNaN(did)) window.open(previewUrl(pid, did), '_blank', 'noopener,noreferrer') }}
                       className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
                       style={{ color: 'var(--text-secondary)' }}
                       title="Preview"
