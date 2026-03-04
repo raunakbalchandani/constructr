@@ -1424,7 +1424,7 @@ function ConflictsTab({ files, currentProject }: { files: UploadedFile[]; curren
           <h1 className="text-3xl font-black uppercase leading-none" style={{ fontFamily: 'var(--font-display)' }}>Conflicts</h1>
         </div>
         <div className="flex items-center gap-2 no-print">
-          {conflicts.length > 0 && (
+          {visibleConflicts.length > 0 && (
             <button
               onClick={() => window.print()}
               className="btn-ghost flex items-center gap-2 flex-shrink-0"
@@ -1667,7 +1667,7 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
       </div>
 
       {/* Doc selectors */}
-      <div className="grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
+      <div className="no-print grid md:grid-cols-2 gap-px" style={{ backgroundColor: 'var(--border)' }}>
         {[
           { val: f1, other: f2, set: setF1, label: 'DOCUMENT A' },
           { val: f2, other: f1, set: setF2, label: 'DOCUMENT B' },
@@ -1715,6 +1715,19 @@ function CompareTab({ files, currentProject }: { files: UploadedFile[]; currentP
 
       {result && (
         <div style={{ border: '1px solid var(--border)' }}>
+          {/* Print header — hidden normally, shown via @media print */}
+          <div id="print-header" style={{ display: 'none' }}>
+            <h1 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem', color: 'black' }}>
+              Document Comparison Report
+            </h1>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+              {result.doc1_name} vs {result.doc2_name}
+            </p>
+            <p style={{ color: '#555', fontSize: '0.85rem', marginBottom: '1rem' }}>
+              {new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <hr style={{ margin: '1rem 0', borderColor: '#ccc' }} />
+          </div>
           {/* Doc header */}
           <div className="flex items-center gap-3 px-5 py-3" style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--card)' }}>
             <span style={{ ...mono, fontSize: '0.63rem', color: 'var(--text-primary)', border: '1px solid var(--border)', padding: '2px 8px' }}>{result.doc1_name}</span>

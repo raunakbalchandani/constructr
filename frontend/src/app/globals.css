@@ -213,11 +213,6 @@ body {
     display: block !important;
   }
 
-  /* Ensure print content is visible */
-  .print-content {
-    display: block !important;
-  }
-
   /* Conflict cards */
   .conflict-card-print {
     break-inside: avoid;
