@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import os
@@ -86,7 +86,7 @@ async def get_current_user(
 
 
 async def get_user_from_token_param(
-    token: str,
+    token: str = Query(...),
     db: Session = Depends(get_db)
 ) -> User:
     """Authenticate via ?token= query param (for file preview in new tab)."""

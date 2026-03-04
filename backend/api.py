@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
+import html
 import os
 import sys
 import logging
+import urllib.parse
 
 logging.basicConfig(
     level=logging.INFO,
@@ -587,14 +589,20 @@ async def preview_document(
 
     # raw=True: serve the raw file bytes (used by IFC 3D viewer to load the model)
     if raw:
-        with open(file_path, "rb") as f:
-            content = f.read()
+        try:
+            with open(file_path, "rb") as f:
+                content = f.read()
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File not found on disk")
         return Response(content=content, media_type="application/octet-stream")
+
+    encoded_name = urllib.parse.quote(original_name, safe="")
+    content_disposition = f"inline; filename*=UTF-8''{encoded_name}"
 
     # PDF — serve directly, browser renders natively
     if ext == "pdf":
         return FileResponse(file_path, media_type="application/pdf", headers={
-            "Content-Disposition": f'inline; filename="{original_name}"'
+            "Content-Disposition": content_disposition
         })
 
     # Images — serve directly
@@ -602,7 +610,7 @@ async def preview_document(
         mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
                 "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
         return FileResponse(file_path, media_type=mime, headers={
-            "Content-Disposition": f'inline; filename="{original_name}"'
+            "Content-Disposition": content_disposition
         })
 
     # DOCX / DOC
@@ -622,7 +630,7 @@ async def preview_document(
 
     # IFC / BIM — handled in Task 2
     if ext in ("ifc",):
-        preview_url = f"/api/projects/{project_id}/documents/{document_id}/preview?token={token}&raw=true"
+        preview_url = f"/api/projects/{project_id}/documents/{document_id}/preview?token={urllib.parse.quote(token, safe='')}&raw=true"
         html = _render_ifc_html(file_path, original_name, preview_url)
         return HTMLResponse(content=html)
 
@@ -1321,12 +1329,13 @@ async def compare_documents(
 
 def _preview_page(title: str, body: str, extra_head: str = "") -> str:
     """Wrap content in a clean preview HTML page."""
+    safe_title = html.escape(title)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title}</title>
+<title>{safe_title}</title>
 {extra_head}
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -1345,7 +1354,7 @@ def _preview_page(title: str, body: str, extra_head: str = "") -> str:
 <body>
 <div class="header">
   <span class="badge">FOREPERSON</span>
-  <span class="filename">{title}</span>
+  <span class="filename">{safe_title}</span>
 </div>
 <div class="content">{body}</div>
 </body>
@@ -1363,14 +1372,15 @@ def _render_docx_html(file_path: str, name: str) -> str:
                 parts.append("<br>")
                 continue
             style = para.style.name if para.style else ""
+            safe_text = html.escape(text)
             if style.startswith("Heading 1"):
-                parts.append(f"<h1 style='font-size:1.6rem;font-weight:700;margin:1.5rem 0 0.5rem'>{text}</h1>")
+                parts.append(f"<h1 style='font-size:1.6rem;font-weight:700;margin:1.5rem 0 0.5rem'>{safe_text}</h1>")
             elif style.startswith("Heading 2"):
-                parts.append(f"<h2 style='font-size:1.2rem;font-weight:600;margin:1.2rem 0 0.4rem'>{text}</h2>")
+                parts.append(f"<h2 style='font-size:1.2rem;font-weight:600;margin:1.2rem 0 0.4rem'>{safe_text}</h2>")
             elif style.startswith("Heading 3"):
-                parts.append(f"<h3 style='font-size:1rem;font-weight:600;margin:1rem 0 0.3rem'>{text}</h3>")
+                parts.append(f"<h3 style='font-size:1rem;font-weight:600;margin:1rem 0 0.3rem'>{safe_text}</h3>")
             else:
-                parts.append(f"<p style='margin:0.4rem 0;line-height:1.7;font-size:0.92rem'>{text}</p>")
+                parts.append(f"<p style='margin:0.4rem 0;line-height:1.7;font-size:0.92rem'>{safe_text}</p>")
         body = "\n".join(parts) or "<p style='color:#999'>Document appears to be empty.</p>"
     except Exception as e:
         body = f"<p style='color:#ef4444'>Could not render document: {e}</p>"
