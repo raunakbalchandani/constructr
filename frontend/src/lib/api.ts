@@ -212,3 +212,8 @@ export const conflictStatuses = {
       { method: 'POST', body: JSON.stringify({ status }) }
     ),
 }
+
+export function previewUrl(projectId: number, documentId: number): string {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  return `/api/projects/${projectId}/documents/${documentId}/preview?token=${encodeURIComponent(token ?? '')}`
+}

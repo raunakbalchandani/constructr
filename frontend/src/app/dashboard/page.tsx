@@ -5,13 +5,14 @@ import Link from 'next/link'
 import ReactMarkdown from 'react-markdown'
 import { useTheme } from 'next-themes'
 import * as api from '@/lib/api'
+import { previewUrl } from '@/lib/api'
 import {
   FileText, MessageSquare, AlertTriangle, GitCompare,
   Upload, Search, Settings, LogOut, Plus, Send,
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download, Eye
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -474,10 +475,11 @@ const FILTER_OPTIONS = [
   { value: 'punch_list', label: 'Punch Lists' },
 ]
 
-function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuery, searchResults }: {
+function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuery, searchResults, currentProject }: {
   files: UploadedFile[]; onUpload: (f: FileList | null) => void
   onDelete: (id: string) => void; isUploading: boolean
   onSearch: (q: string) => void; searchQuery: string; searchResults: api.SearchResult[] | null
+  currentProject: Project | null
 }) {
   const [inputValue, setInputValue] = useState(searchQuery)
   const [search, setSearch] = useState('')
@@ -530,7 +532,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
           </button>
         </div>
         <input ref={inputRef} type="file" multiple
-          accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
+          accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.ifc,.png,.jpg,.jpeg"
           className="hidden"
           onChange={(e) => { onUpload(e.target.files); e.target.value = '' }} />
       </div>
@@ -646,7 +648,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
             Drop files or <span style={{ color: 'var(--accent)' }}>browse</span>
           </p>
           <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>
-            PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · CSV
+            PDF · DOCX · XLSX · PNG · JPG · DWG · DXF · IFC · CSV
           </p>
         </div>
       )}
@@ -664,7 +666,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
             <input
               type="file"
               multiple
-              accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.png,.jpg,.jpeg"
+              accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.dwg,.dxf,.ifc,.png,.jpg,.jpeg"
               className="hidden"
               onChange={(e) => { onUpload(e.target.files); e.target.value = '' }}
             />
@@ -696,6 +698,17 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
                   <Trash2 size={12} />
                 </button>
+                {currentProject && (
+                  <button
+                    onClick={() => window.open(previewUrl(parseInt(currentProject.id), parseInt(f.id)), '_blank')}
+                    className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
+                    style={{ color: 'var(--text-secondary)' }}
+                    title="Preview"
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)' }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
+                    <Eye size={12} />
+                  </button>
+                )}
 
                 {/* Icon */}
                 <div className="w-10 h-10 flex items-center justify-center mb-4"
@@ -745,19 +758,20 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <div style={{ border: '1px solid var(--border)' }}>
-            <div className="grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 px-4 py-2"
+            <div className="grid grid-cols-[1fr_140px_80px_70px_32px_32px] gap-4 px-4 py-2"
               style={{ borderBottom: '1px solid var(--border)', backgroundColor: 'var(--surface)' }}>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>NAME</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>TYPE</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>SIZE</span>
               <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>DATE</span>
               <span />
+              <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}></span>
             </div>
             {shown.map((f) => {
               const c = cat(f.type)
               const CatIcon = c.icon
               return (
-                <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px] gap-4 items-center px-4 py-3 transition-colors"
+                <div key={f.id} className="group grid grid-cols-[1fr_140px_80px_70px_32px_32px] gap-4 items-center px-4 py-3 transition-colors"
                   style={{ borderBottom: '1px solid var(--border)' }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent' }}>
@@ -789,6 +803,17 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                   </span>
                   <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
                   <span className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</span>
+                  {currentProject ? (
+                    <button
+                      onClick={() => window.open(previewUrl(parseInt(currentProject.id), parseInt(f.id)), '_blank')}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                      style={{ color: 'var(--text-secondary)' }}
+                      title="Preview"
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)' }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
+                      <Eye size={12} />
+                    </button>
+                  ) : <span />}
                   <button onClick={() => onDelete(f.id)}
                     className="opacity-0 group-hover:opacity-100 transition-opacity p-1"
                     style={{ color: 'var(--text-secondary)' }}
@@ -2250,7 +2275,7 @@ export default function DashboardPage() {
   const renderContent = () => {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
-      case 'files':     return <FilesTab files={files} onUpload={handleBulkUpload} onDelete={handleDeleteFile} isUploading={uploadQueue.some(f => f.status === 'uploading')} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} />
+      case 'files':     return <FilesTab files={files} onUpload={handleBulkUpload} onDelete={handleDeleteFile} isUploading={uploadQueue.some(f => f.status === 'uploading')} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} currentProject={current} />
       case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
       case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
       case 'compare':   return <CompareTab files={files} currentProject={current} />
