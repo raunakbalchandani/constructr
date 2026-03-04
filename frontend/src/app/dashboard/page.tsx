@@ -361,9 +361,6 @@ function OverviewTab({ project, files, setTab, analytics }: {
   const typeCounts: Record<string, number> = {}
   files.forEach((f) => { typeCounts[f.type] = (typeCounts[f.type] ?? 0) + 1 })
 
-  const topTypes = Object.entries(typeCounts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
 
   return (
     <div className="space-y-8">
@@ -438,37 +435,6 @@ function OverviewTab({ project, files, setTab, analytics }: {
           </button>
         ))}
       </div>
-
-      {/* File breakdown */}
-      {topTypes.length > 0 && (
-        <div>
-          <div className="flex items-center gap-4 mb-4">
-            <span className="label-mono-accent" style={{ fontFamily: 'var(--font-mono)' }}>// FILE BREAKDOWN</span>
-            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--border)' }} />
-          </div>
-          <div className="grid md:grid-cols-3 gap-px" style={{ backgroundColor: 'var(--border)' }}>
-            {topTypes.map(([type, count]) => {
-              const c = cat(type)
-              const CatIcon = c.icon
-              return (
-                <div key={type} className="flex items-center gap-4 p-5 transition-colors"
-                  style={{ backgroundColor: 'var(--card)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}>
-                  <div className="w-10 h-10 flex items-center justify-center flex-shrink-0"
-                    style={{ backgroundColor: c.color + '15', border: `1px solid ${c.color}30` }}>
-                    <CatIcon size={16} style={{ color: c.color }} />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold uppercase tracking-wide truncate" style={{ letterSpacing: '0.06em' }}>{c.label}</p>
-                    <p className="text-xl font-black" style={{ fontFamily: 'var(--font-display)', color: c.color }}>{count}</p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Quick actions */}
       <div>
