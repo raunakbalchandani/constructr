@@ -1448,8 +1448,175 @@ def _render_dxf_html(file_path: str, name: str) -> str:
 
 
 def _render_ifc_html(file_path: str, name: str, preview_url: str) -> str:
-    # Placeholder — implemented in Task 2
-    return _preview_page(name, "<p>IFC preview coming soon.</p>")
+    import html as html_mod
+    safe_name = html_mod.escape(name)
+    metadata_html = ""
+    try:
+        import ifcopenshell
+        ifc = ifcopenshell.open(file_path)
+
+        projects = ifc.by_type("IfcProject")
+        proj_name = html_mod.escape(projects[0].Name or "") if projects else ""
+        proj_desc = html_mod.escape(projects[0].Description or "") if projects and projects[0].Description else ""
+
+        def count(ifc_type):
+            try:
+                return len(ifc.by_type(ifc_type))
+            except Exception:
+                return 0
+
+        elements = {
+            "Storeys": count("IfcBuildingStorey"),
+            "Spaces": count("IfcSpace"),
+            "Walls": count("IfcWall"),
+            "Slabs": count("IfcSlab"),
+            "Columns": count("IfcColumn"),
+            "Beams": count("IfcBeam"),
+            "Doors": count("IfcDoor"),
+            "Windows": count("IfcWindow"),
+            "Stairs": count("IfcStair"),
+            "Roofs": count("IfcRoof"),
+        }
+
+        rows = "".join(
+            f"<tr><td class='label'>{k}</td><td class='val'>{v}</td></tr>"
+            for k, v in elements.items() if v > 0
+        )
+
+        display_title = proj_name or safe_name
+        metadata_html = f"""
+<div class="meta-panel">
+  <div class="meta-header">
+    <div class="meta-badge">BIM</div>
+    <h2 class="meta-title">{display_title}</h2>
+    {f'<p class="meta-desc">{proj_desc}</p>' if proj_desc else ''}
+  </div>
+  <table class="meta-table">
+    <tbody>{rows or "<tr><td colspan='2' style='color:#7a7268;padding:16px;font-size:0.8rem'>No elements found</td></tr>"}</tbody>
+  </table>
+  <p class="meta-file">{safe_name}</p>
+</div>"""
+    except Exception as e:
+        import html as _h
+        safe_e = _h.escape(str(e))
+        metadata_html = f"""
+<div class="meta-panel">
+  <div class="meta-header">
+    <div class="meta-badge">BIM</div>
+    <h2 class="meta-title">{safe_name}</h2>
+  </div>
+  <p style="color:#7a7268;font-size:0.8rem;padding:16px">Could not parse metadata: {safe_e}</p>
+</div>"""
+
+    # preview_url is server-constructed (not user input), safe to embed
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{safe_name}</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  html, body {{ height: 100%; overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+  body {{ display: flex; flex-direction: column; background: #111110; color: #f0ede4; }}
+
+  .header {{ background: #1c1b18; padding: 10px 20px; display: flex; align-items: center;
+             gap: 12px; border-bottom: 1px solid #313130; flex-shrink: 0; }}
+  .header .badge {{ font-size: 0.6rem; font-family: monospace; letter-spacing: 0.1em;
+                    padding: 2px 8px; color: #f5c800; border: 1px solid rgba(245,200,0,0.4); }}
+  .header .filename {{ font-size: 0.8rem; font-family: monospace; opacity: 0.6;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+
+  .main {{ display: flex; flex: 1; overflow: hidden; }}
+
+  .meta-panel {{ width: 280px; flex-shrink: 0; background: #1a1a18; border-right: 1px solid #313130;
+                 overflow-y: auto; display: flex; flex-direction: column; }}
+  .meta-header {{ padding: 20px; border-bottom: 1px solid #313130; }}
+  .meta-badge {{ font-size: 0.55rem; font-family: monospace; letter-spacing: 0.12em;
+                 color: #f5c800; border: 1px solid rgba(245,200,0,0.3); padding: 2px 6px;
+                 display: inline-block; margin-bottom: 10px; }}
+  .meta-title {{ font-size: 1rem; font-weight: 700; line-height: 1.3; color: #f0ede4; }}
+  .meta-desc {{ font-size: 0.75rem; color: #7a7268; margin-top: 6px; line-height: 1.5; }}
+  .meta-table {{ width: 100%; border-collapse: collapse; }}
+  .meta-table tr {{ border-bottom: 1px solid #232320; }}
+  .meta-table td {{ padding: 10px 20px; font-size: 0.8rem; }}
+  .meta-table .label {{ color: #7a7268; font-family: monospace; font-size: 0.7rem;
+                         letter-spacing: 0.06em; width: 50%; }}
+  .meta-table .val {{ color: #f0ede4; font-weight: 600; font-family: monospace; text-align: right; }}
+  .meta-file {{ font-family: monospace; font-size: 0.65rem; color: #4a4a48;
+                padding: 16px 20px; margin-top: auto; }}
+
+  .viewer-wrap {{ flex: 1; position: relative; background: #0d0d0c; }}
+  #viewer-canvas {{ width: 100%; height: 100%; display: block; }}
+  .viewer-loading {{ position: absolute; inset: 0; display: flex; align-items: center;
+                      justify-content: center; flex-direction: column; gap: 12px;
+                      background: #0d0d0c; z-index: 5; }}
+  .viewer-loading p {{ font-family: monospace; font-size: 0.75rem; color: #7a7268;
+                        letter-spacing: 0.08em; }}
+  .spinner {{ width: 32px; height: 32px; border: 2px solid #313130;
+              border-top-color: #f5c800; border-radius: 50%;
+              animation: spin 0.8s linear infinite; }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+  .viewer-error {{ position: absolute; inset: 0; display: none; align-items: center;
+                   justify-content: center; flex-direction: column; gap: 8px; }}
+  .viewer-error p {{ font-size: 0.85rem; color: #7a7268; font-family: monospace; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <span class="badge">FOREPERSON · BIM</span>
+  <span class="filename">{safe_name}</span>
+</div>
+<div class="main">
+  {metadata_html}
+  <div class="viewer-wrap">
+    <div class="viewer-loading" id="loading">
+      <div class="spinner"></div>
+      <p>LOADING 3D MODEL…</p>
+    </div>
+    <div class="viewer-error" id="error">
+      <p>3D viewer unavailable</p>
+      <p style="font-size:0.7rem;color:#4a4a48">Metadata shown on left panel</p>
+    </div>
+    <canvas id="viewer-canvas"></canvas>
+  </div>
+</div>
+
+<script type="module">
+  import {{ IfcViewerAPI }} from 'https://unpkg.com/web-ifc-viewer@1.0.220/dist/index.js';
+  import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+
+  const container = document.querySelector('.viewer-wrap');
+  const loading = document.getElementById('loading');
+  const errorEl = document.getElementById('error');
+
+  try {{
+    const viewer = new IfcViewerAPI({{
+      container,
+      backgroundColor: new THREE.Color(0x0d0d0c),
+    }});
+
+    viewer.axes.setAxes();
+    viewer.grid.setGrid();
+    viewer.IFC.setWasmPath('https://unpkg.com/web-ifc@0.0.44/');
+
+    await viewer.IFC.loadIfcUrl('{preview_url}', true, (progress) => {{
+      if (progress.total > 0) {{
+        const pct = Math.round((progress.loaded / progress.total) * 100);
+        document.querySelector('#loading p').textContent = `LOADING 3D MODEL… ${{pct}}%`;
+      }}
+    }});
+
+    loading.style.display = 'none';
+  }} catch (e) {{
+    console.error('IFC viewer error:', e);
+    loading.style.display = 'none';
+    errorEl.style.display = 'flex';
+  }}
+</script>
+</body>
+</html>"""
 
 
 def _unsupported_html(name: str) -> str:

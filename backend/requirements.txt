@@ -35,3 +35,6 @@ numpy>=1.24.0
 # CAD file support (DWG/DXF)
 ezdxf>=1.1.0
 matplotlib>=3.7.0
+
+# BIM / IFC support
+ifcopenshell>=0.7.0
