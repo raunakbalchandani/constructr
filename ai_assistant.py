@@ -74,7 +74,7 @@ ANTHROPIC_MODELS = {
     "claude-haiku-4-5-20251001",
 }
 
-# Document types that contain visual/spatial information worth sending to vision API
+# Retained for future use (e.g. selective processing); no longer gates PDF vision routing
 VISUAL_DOC_TYPES = {"drawing", "floor_plan", "site_plan", "unknown"}
 
 # Image file extensions that can be passed directly to the vision API
@@ -214,7 +214,7 @@ def _get_doc_images(doc: Dict) -> List[str]:
 
     - Image files (jpg, png, etc.) → load directly.
     - DOCX files → extract embedded images from word/media/.
-    - PDFs typed as drawings/plans → render pages via pymupdf.
+    - PDFs → render pages via pymupdf (all PDFs, regardless of document type).
     - Everything else → no images.
     """
     file_path = doc.get("file_path", "")
