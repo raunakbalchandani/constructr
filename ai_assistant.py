@@ -82,7 +82,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".webp", "
 
 # Cap images per request to keep token usage sane
 MAX_IMAGES_PER_REQUEST = 6
-MAX_PDF_PAGES = 5
+MAX_PDF_PAGES = 10
 
 
 def _build_providers(model: Optional[str] = None) -> List[AIProvider]:
@@ -171,7 +171,7 @@ def _pdf_to_images(file_path: str) -> List[str]:
         for page_num in range(pages):
             page = pdf.load_page(page_num)
             # 150 DPI — good balance of quality vs token cost for construction drawings
-            mat = fitz.Matrix(150 / 72, 150 / 72)
+            mat = fitz.Matrix(250 / 72, 250 / 72)
             pix = page.get_pixmap(matrix=mat)
             images.append(base64.b64encode(pix.tobytes("png")).decode())
         pdf.close()
@@ -230,7 +230,7 @@ def _get_doc_images(doc: Dict) -> List[str]:
     if ext in (".docx", ".doc"):
         return _docx_to_images(file_path)
 
-    if ext == ".pdf" and doc.get("document_type") in VISUAL_DOC_TYPES:
+    if ext == ".pdf":
         return _pdf_to_images(file_path)
 
     return []
