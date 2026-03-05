@@ -852,12 +852,14 @@ Return ONLY the JSON array, no markdown, no explanation."""
 
         try:
             import json
+            system = self._build_system_prompt()
             images_by_doc = self._collect_visual_images()
             if images_by_doc:
                 try:
+                    # history intentionally omitted — conflict detection is document-driven, not conversational
                     raw = self._complete_with_vision(
                         prompt, images_by_doc,
-                        system_prompt=SYSTEM_PROMPT,
+                        system_prompt=system,
                         max_tokens=3000,
                         temperature=0.2,
                     )
@@ -865,7 +867,7 @@ Return ONLY the JSON array, no markdown, no explanation."""
                     logger.warning("find_conflicts: vision path failed (%s); falling back to text-only.", vision_err)
                     raw = self._complete(
                         messages=[
-                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "system", "content": system},
                             {"role": "user", "content": prompt},
                         ],
                         max_tokens=3000,
@@ -874,7 +876,7 @@ Return ONLY the JSON array, no markdown, no explanation."""
             else:
                 raw = self._complete(
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "system", "content": system},
                         {"role": "user", "content": prompt},
                     ],
                     max_tokens=3000,
