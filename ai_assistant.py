@@ -11,6 +11,7 @@ import base64
 import os
 import re
 import logging
+import shutil
 from pathlib import Path
 from backend.constants import MAX_CONTEXT_CHARS, DEFAULT_AI_MODEL, DEFAULT_ANTHROPIC_MODEL, CHAT_HISTORY_WINDOW
 from backend.ai_provider import AIProvider, OpenAIProvider, AnthropicProvider
@@ -23,6 +24,10 @@ try:
 except ImportError:
     _VISION_COUNTER_AVAILABLE = False
     logger.warning("AI: vision_counter not available — YOLO/CV counting disabled")
+
+_LIBREOFFICE_AVAILABLE = shutil.which("libreoffice") is not None
+if not _LIBREOFFICE_AVAILABLE:
+    logger.warning("AI: libreoffice not found on PATH — DWG vision unavailable")
 
 # System prompt for construction expertise
 SYSTEM_PROMPT = """You are Foreperson — a sharp, experienced AI built for project managers. You think before you answer. You have deep expertise in construction (AIA contracts, CSI specs, RFIs, submittals, schedules, budgets, MEP, structural) and you're also broadly knowledgeable across any topic.
@@ -239,6 +244,9 @@ def _dwg_to_images(file_path: str) -> List[str]:
     except FileNotFoundError:
         logger.warning("Vision: LibreOffice not installed — DWG vision unavailable")
         return []
+    except subprocess.TimeoutExpired:
+        logger.warning("Vision: LibreOffice timed out converting DWG %s (limit: 120s)", Path(file_path).name)
+        return []
     except Exception as e:
         logger.warning("Vision: DWG conversion failed for %s: %s", Path(file_path).name, e)
         return []
@@ -250,6 +258,7 @@ def _get_doc_images(doc: Dict) -> List[str]:
     - Image files (jpg, png, etc.) → load directly.
     - DOCX files → extract embedded images from word/media/.
     - PDFs → render pages via pymupdf (all PDFs, regardless of document type).
+    - DWG files → convert to PNG via LibreOffice headless.
     - Everything else → no images.
     """
     file_path = doc.get("file_path", "")
