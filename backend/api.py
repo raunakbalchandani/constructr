@@ -624,9 +624,15 @@ async def preview_document(
         html = _render_spreadsheet_html(file_path, original_name, ext)
         return HTMLResponse(content=html)
 
-    # DWG / DXF
-    if ext in ("dxf", "dwg"):
+    # DXF — render as SVG
+    if ext == "dxf":
         html = _render_dxf_html(file_path, original_name)
+        return HTMLResponse(content=html)
+
+    # DWG — convert to DXF via dwg2dxf then render
+    if ext == "dwg":
+        raw_url = f"/api/projects/{project_id}/documents/{document_id}/preview?token={urllib.parse.quote(token, safe='')}&raw=true"
+        html = _render_dwg_html(file_path, original_name, raw_url)
         return HTMLResponse(content=html)
 
     # IFC / BIM — handled in Task 2
@@ -1382,9 +1388,12 @@ def _render_docx_html(file_path: str, name: str) -> str:
                 parts.append(f"<h3 style='font-size:1rem;font-weight:600;margin:1rem 0 0.3rem'>{safe_text}</h3>")
             else:
                 parts.append(f"<p style='margin:0.4rem 0;line-height:1.7;font-size:0.92rem'>{safe_text}</p>")
-        body = "\n".join(parts) or "<p style='color:#999'>Document appears to be empty.</p>"
+        body = "\n".join(parts)
+        import re as _re
+        if not _re.sub(r'<br\s*/?>', '', body).strip():
+            body = "<p style='color:#999'>Document appears to be empty.</p>"
     except Exception as e:
-        body = f"<p style='color:#ef4444'>Could not render document: {e}</p>"
+        body = f"<p style='color:#ef4444'>Could not render document: {html.escape(str(e))}</p>"
     return _preview_page(name, body)
 
 
@@ -1446,6 +1455,72 @@ def _render_dxf_html(file_path: str, name: str) -> str:
     except Exception as e:
         body = f"<p style='color:#ef4444'>Could not render drawing: {html.escape(str(e))}</p><p style='color:#7a7268;font-size:0.85rem;margin-top:8px'>DWG files may require conversion. Try re-exporting as DXF.</p>"
     return _preview_page(name, body)
+
+
+def _render_dwg_html(file_path: str, name: str, raw_url: str) -> str:
+    """Try to convert DWG→DXF via dwg2dxf, fall back to info+download page."""
+    import shutil, subprocess, tempfile, xml.etree.ElementTree as ET
+    safe_name = html.escape(name)
+
+    # Attempt conversion with dwg2dxf (from libredwg)
+    if shutil.which("dwg2dxf"):
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = subprocess.run(
+                    ["dwg2dxf", "-o", tmp, file_path],
+                    capture_output=True, timeout=30
+                )
+                dxf_files = [f for f in os.listdir(tmp) if f.endswith(".dxf")]
+                if dxf_files:
+                    dxf_path = os.path.join(tmp, dxf_files[0])
+                    return _render_dxf_html(dxf_path, name)
+        except Exception:
+            pass
+
+    # Fallback: read DWG version from magic bytes and show info + download
+    version = "Unknown"
+    file_size = 0
+    version_map = {
+        b"AC1009": "R11/R12", b"AC1012": "R13", b"AC1014": "R14",
+        b"AC1015": "2000",    b"AC1018": "2004", b"AC1021": "2007",
+        b"AC1024": "2010",    b"AC1027": "2013", b"AC1032": "2018",
+    }
+    try:
+        with open(file_path, "rb") as f:
+            magic = f.read(6)
+        version = version_map.get(magic, "Unknown")
+        file_size = os.path.getsize(file_path)
+    except Exception:
+        pass
+
+    size_str = f"{file_size/1024:.1f} KB" if file_size < 1024*1024 else f"{file_size/1024/1024:.1f} MB"
+
+    body = f"""
+<div style="max-width:480px;margin:60px auto;text-align:center">
+  <div style="font-size:3rem;margin-bottom:20px">📐</div>
+  <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:20px">{safe_name}</h2>
+  <table style="margin:0 auto 24px;border-collapse:collapse;text-align:left">
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 20px;color:var(--text-secondary);font-family:monospace;font-size:0.7rem;letter-spacing:0.06em">FORMAT</td>
+      <td style="padding:8px 20px;font-family:monospace;font-size:0.75rem;font-weight:600">AutoCAD DWG</td>
+    </tr>
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:8px 20px;color:var(--text-secondary);font-family:monospace;font-size:0.7rem;letter-spacing:0.06em">VERSION</td>
+      <td style="padding:8px 20px;font-family:monospace;font-size:0.75rem;font-weight:600">AutoCAD {html.escape(version)}</td>
+    </tr>
+    <tr>
+      <td style="padding:8px 20px;color:var(--text-secondary);font-family:monospace;font-size:0.7rem;letter-spacing:0.06em">SIZE</td>
+      <td style="padding:8px 20px;font-family:monospace;font-size:0.75rem;font-weight:600">{size_str}</td>
+    </tr>
+  </table>
+  <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:24px;line-height:1.6">
+    DWG is a proprietary Autodesk format.<br>Download to open in AutoCAD, BricsCAD, or another CAD viewer.
+  </p>
+  <a href="{raw_url}" style="display:inline-block;background:var(--accent);color:var(--accent-dark);padding:10px 28px;text-decoration:none;font-weight:600;font-size:0.875rem;border-radius:2px;letter-spacing:0.02em">
+    Download DWG
+  </a>
+</div>"""
+    return _preview_page(safe_name, body)
 
 
 def _render_ifc_html(file_path: str, name: str, preview_url: str) -> str:
