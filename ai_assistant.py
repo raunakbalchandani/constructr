@@ -209,6 +209,41 @@ def _docx_to_images(file_path: str) -> List[str]:
     return images
 
 
+def _dwg_to_images(file_path: str) -> List[str]:
+    """Convert a DWG file to PNG via LibreOffice headless, return base64 list."""
+    import subprocess
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            result = subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "png", "--outdir", tmpdir, file_path],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                logger.warning("Vision: LibreOffice DWG convert failed: %s", result.stderr[:200])
+                return []
+
+            stem = Path(file_path).stem
+            png = Path(tmpdir) / f"{stem}.png"
+            if not png.exists():
+                pngs = list(Path(tmpdir).glob("*.png"))
+                if not pngs:
+                    logger.warning("Vision: LibreOffice produced no PNG for %s", Path(file_path).name)
+                    return []
+                png = pngs[0]
+
+            b64 = base64.b64encode(png.read_bytes()).decode()
+            logger.info("Vision: DWG converted to PNG via LibreOffice: %s", Path(file_path).name)
+            return [b64]
+    except FileNotFoundError:
+        logger.warning("Vision: LibreOffice not installed — DWG vision unavailable")
+        return []
+    except Exception as e:
+        logger.warning("Vision: DWG conversion failed for %s: %s", Path(file_path).name, e)
+        return []
+
+
 def _get_doc_images(doc: Dict) -> List[str]:
     """Return base64-encoded images for a document, or [] if none are available.
 
@@ -232,6 +267,9 @@ def _get_doc_images(doc: Dict) -> List[str]:
 
     if ext == ".pdf":
         return _pdf_to_images(file_path)
+
+    if ext == ".dwg":
+        return _dwg_to_images(file_path)
 
     return []
 
