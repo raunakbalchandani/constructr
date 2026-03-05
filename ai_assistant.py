@@ -852,14 +852,23 @@ Return ONLY the JSON array, no markdown, no explanation."""
 
         try:
             import json
-            raw = self._complete(
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                max_tokens=3000,
-                temperature=0.2,
-            )
+            images_by_doc = self._collect_visual_images()
+            if images_by_doc:
+                raw = self._complete_with_vision(
+                    prompt, images_by_doc,
+                    system_prompt=SYSTEM_PROMPT,
+                    max_tokens=3000,
+                    temperature=0.2,
+                )
+            else:
+                raw = self._complete(
+                    messages=[
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_tokens=3000,
+                    temperature=0.2,
+                )
             raw = raw.strip()
             if raw.startswith("```"):
                 parts = raw.split("```")
