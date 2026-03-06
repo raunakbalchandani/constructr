@@ -29,7 +29,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from starlette.requests import Request
 from backend.constants import MAX_FILE_SIZE, PAGINATION_DEFAULT_LIMIT, PAGINATION_MAX_LIMIT, CHAT_RATE_LIMIT, CONFLICTS_RATE_LIMIT, CHAT_HISTORY_WINDOW
-from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, ConflictStatus, init_db
+from backend.database import get_db, User, Project, Document, Chat, ChatMessage, ProjectMemory, ConflictStatus, RFI, DailyReport, ActionItem, init_db
 from backend.auth import (
     get_current_user,
     get_user_from_token_param,
@@ -44,11 +44,12 @@ from backend.storage import save_file, get_file, delete_file
 try:
     from document_parser import ConstructionDocumentParser as DocumentParser
     from document_parser import detect_document_type
-    from ai_assistant import ConstructionAI
+    from ai_assistant import ConstructionAI, ConstructionAgent
 except ImportError:
     DocumentParser = None
     detect_document_type = None
     ConstructionAI = None
+    ConstructionAgent = None
 
 # Initialize FastAPI
 app = FastAPI(
@@ -223,6 +224,86 @@ class ProjectAnalyticsResponse(BaseModel):
     memory_fact_count: int
 
 
+# ---- RFI schemas ----
+class RFICreate(BaseModel):
+    subject: str
+    description: str
+    due_date: Optional[str] = None
+
+
+class RFIUpdate(BaseModel):
+    subject: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    response: Optional[str] = None
+    due_date: Optional[str] = None
+
+
+class RFIResponse(BaseModel):
+    id: int
+    number: int
+    subject: str
+    description: str
+    status: str
+    response: Optional[str] = None
+    due_date: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- DailyReport schemas ----
+class DailyReportCreate(BaseModel):
+    report_date: str
+    work_performed: str
+    weather: Optional[str] = None
+    crew_count: Optional[int] = None
+    issues: Optional[str] = None
+
+
+class DailyReportResponse(BaseModel):
+    id: int
+    report_date: str
+    work_performed: str
+    weather: Optional[str] = None
+    crew_count: Optional[int] = None
+    issues: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ---- ActionItem schemas ----
+class ActionItemCreate(BaseModel):
+    description: str
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+
+
+class ActionItemUpdate(BaseModel):
+    description: Optional[str] = None
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    status: Optional[str] = None
+
+
+class ActionItemResponse(BaseModel):
+    id: int
+    description: str
+    assigned_to: Optional[str] = None
+    due_date: Optional[str] = None
+    status: str
+    created_by: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Initialize database on startup
 @app.on_event("startup")
 async def startup():
@@ -242,6 +323,9 @@ async def startup():
             conn.commit()
         except Exception:
             pass  # Column already exists
+        # Ensure new agent tables exist (init_db handles CREATE TABLE IF NOT EXISTS via SQLAlchemy metadata)
+        from backend.database import Base, engine as _engine
+        Base.metadata.create_all(bind=_engine)
 
 
 # Health check
@@ -730,18 +814,20 @@ async def search_documents(
 # ============ Chat Routes ============
 
 def _extract_and_save_facts(
-    assistant,
+    _unused,
     question: str,
     response: str,
     project_id: int,
     chat_id: int,
 ):
     """Background task: extract facts from a Q&A exchange and upsert into ProjectMemory."""
-    # Need a fresh DB session since this runs outside the request context
     from backend.database import SessionLocal
     db = SessionLocal()
     try:
-        facts = assistant.extract_facts(question, response)
+        extractor = ConstructionAI() if ConstructionAI else None
+        if not extractor:
+            return
+        facts = extractor.extract_facts(question, response)
         for fact in facts:
             key = str(fact.get("key", "")).strip()
             value = str(fact.get("value", "")).strip()
@@ -894,13 +980,14 @@ async def chat(
 
     # Create AI assistant and get response
     try:
-        assistant = ConstructionAI(model=chat_request.model)
-
-        # Load documents if available
-        if doc_list:
-            assistant.load_documents(doc_list)
-
-        response = assistant.ask_question(
+        agent = ConstructionAgent(
+            db=db,
+            project_id=chat_request.project_id,
+            user_name=current_user.name,
+            documents=doc_list,
+            model=chat_request.model,
+        )
+        response = agent.run(
             chat_request.message,
             history=chat_history,
             project_memory=memory_list,
@@ -919,7 +1006,7 @@ async def chat(
         # Schedule fact extraction in background (non-blocking)
         background_tasks.add_task(
             _extract_and_save_facts,
-            assistant,
+            None,
             chat_request.message,
             response,
             chat_request.project_id,
@@ -1331,6 +1418,192 @@ async def compare_documents(
         raise HTTPException(status_code=500, detail=f"Compare error: {str(e)}")
 
 
+# ============ RFI Routes ============
+
+def _get_project_or_404(project_id: int, user_id: int, db: Session):
+    project = db.query(Project).filter(Project.id == project_id, Project.owner_id == user_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+
+@app.get("/projects/{project_id}/rfis", response_model=List[RFIResponse])
+async def list_rfis(
+    project_id: int,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    q = db.query(RFI).filter(RFI.project_id == project_id)
+    if status:
+        q = q.filter(RFI.status == status)
+    return q.order_by(RFI.number.desc()).all()
+
+
+@app.post("/projects/{project_id}/rfis", response_model=RFIResponse, status_code=201)
+async def create_rfi(
+    project_id: int,
+    body: RFICreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    last = db.query(RFI).filter(RFI.project_id == project_id).order_by(RFI.number.desc()).first()
+    number = (last.number + 1) if last else 1
+    rfi = RFI(project_id=project_id, number=number, subject=body.subject,
+              description=body.description, due_date=body.due_date,
+              created_by=current_user.name, status="open")
+    db.add(rfi)
+    db.commit()
+    db.refresh(rfi)
+    return rfi
+
+
+@app.patch("/projects/{project_id}/rfis/{rfi_id}", response_model=RFIResponse)
+async def update_rfi(
+    project_id: int,
+    rfi_id: int,
+    body: RFIUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    rfi = db.query(RFI).filter(RFI.id == rfi_id, RFI.project_id == project_id).first()
+    if not rfi:
+        raise HTTPException(status_code=404, detail="RFI not found")
+    for field, val in body.dict(exclude_unset=True).items():
+        setattr(rfi, field, val)
+    db.commit()
+    db.refresh(rfi)
+    return rfi
+
+
+@app.delete("/projects/{project_id}/rfis/{rfi_id}", status_code=204)
+async def delete_rfi(
+    project_id: int,
+    rfi_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    rfi = db.query(RFI).filter(RFI.id == rfi_id, RFI.project_id == project_id).first()
+    if not rfi:
+        raise HTTPException(status_code=404, detail="RFI not found")
+    db.delete(rfi)
+    db.commit()
+
+
+# ============ Daily Report Routes ============
+
+@app.get("/projects/{project_id}/daily-reports", response_model=List[DailyReportResponse])
+async def list_daily_reports(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    return db.query(DailyReport).filter(DailyReport.project_id == project_id).order_by(DailyReport.report_date.desc()).all()
+
+
+@app.post("/projects/{project_id}/daily-reports", response_model=DailyReportResponse, status_code=201)
+async def create_daily_report(
+    project_id: int,
+    body: DailyReportCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    report = DailyReport(project_id=project_id, report_date=body.report_date,
+                         work_performed=body.work_performed, weather=body.weather,
+                         crew_count=body.crew_count, issues=body.issues,
+                         created_by=current_user.name)
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+@app.delete("/projects/{project_id}/daily-reports/{report_id}", status_code=204)
+async def delete_daily_report(
+    project_id: int,
+    report_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    report = db.query(DailyReport).filter(DailyReport.id == report_id, DailyReport.project_id == project_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    db.delete(report)
+    db.commit()
+
+
+# ============ Action Item Routes ============
+
+@app.get("/projects/{project_id}/action-items", response_model=List[ActionItemResponse])
+async def list_action_items(
+    project_id: int,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    q = db.query(ActionItem).filter(ActionItem.project_id == project_id)
+    if status:
+        q = q.filter(ActionItem.status == status)
+    return q.order_by(ActionItem.created_at.desc()).all()
+
+
+@app.post("/projects/{project_id}/action-items", response_model=ActionItemResponse, status_code=201)
+async def create_action_item(
+    project_id: int,
+    body: ActionItemCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    item = ActionItem(project_id=project_id, description=body.description,
+                      assigned_to=body.assigned_to, due_date=body.due_date,
+                      created_by=current_user.name, status="open")
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.patch("/projects/{project_id}/action-items/{item_id}", response_model=ActionItemResponse)
+async def update_action_item(
+    project_id: int,
+    item_id: int,
+    body: ActionItemUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    item = db.query(ActionItem).filter(ActionItem.id == item_id, ActionItem.project_id == project_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Action item not found")
+    for field, val in body.dict(exclude_unset=True).items():
+        setattr(item, field, val)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@app.delete("/projects/{project_id}/action-items/{item_id}", status_code=204)
+async def delete_action_item(
+    project_id: int,
+    item_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    item = db.query(ActionItem).filter(ActionItem.id == item_id, ActionItem.project_id == project_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Action item not found")
+    db.delete(item)
+    db.commit()
 
 
 # ---------------------------------------------------------------------------

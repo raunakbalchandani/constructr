@@ -179,12 +179,15 @@ function DeleteProjectModal({ isOpen, onClose, onConfirm, name }: {
 
 // ─── Sidebar ───────────────────────────────────────────────
 const NAV = [
-  { id: 'overview',  icon: Home,          label: 'Overview' },
-  { id: 'files',     icon: Layers,        label: 'Files' },
-  { id: 'chat',      icon: MessageSquare, label: 'AI Chat' },
-  { id: 'conflicts', icon: AlertTriangle, label: 'Conflicts' },
-  { id: 'compare',   icon: GitCompare,    label: 'Compare' },
-  { id: 'settings',  icon: Settings,      label: 'Settings' },
+  { id: 'overview',      icon: Home,          label: 'Overview' },
+  { id: 'files',         icon: Layers,        label: 'Files' },
+  { id: 'chat',          icon: MessageSquare, label: 'AI Chat' },
+  { id: 'rfis',          icon: ClipboardList, label: 'RFIs' },
+  { id: 'daily-reports', icon: HardHat,       label: 'Daily Reports' },
+  { id: 'action-items',  icon: CheckCircle2,  label: 'Action Items' },
+  { id: 'conflicts',     icon: AlertTriangle, label: 'Conflicts' },
+  { id: 'compare',       icon: GitCompare,    label: 'Compare' },
+  { id: 'settings',      icon: Settings,      label: 'Settings' },
 ]
 
 function Sidebar({ open, onClose, onToggle, tab, setTab, projects, current, setCurrent, onNew, onDelete }: {
@@ -1823,6 +1826,379 @@ const ANTHROPIC_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5',  badge: 'Fastest',      desc: 'Ultra-fast and lightweight. Great for quick lookups and field queries.' },
 ]
 
+// ─── RFIs Tab ────────────────────────────────────────────────
+function RFIsTab({ currentProject }: { currentProject: Project | null }) {
+  const [rfis, setRfis] = useState<api.RFI[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<number | null>(null)
+  const [form, setForm] = useState({ subject: '', description: '', due_date: '' })
+  const [responseText, setResponseText] = useState<Record<number, string>>({})
+
+  const load = useCallback(async () => {
+    if (!currentProject) return
+    setLoading(true)
+    try { setRfis(await api.rfis.list(Number(currentProject.id))) } catch { /* ignore */ }
+    setLoading(false)
+  }, [currentProject])
+
+  useEffect(() => { load() }, [load])
+
+  const submit = async () => {
+    if (!currentProject || !form.subject.trim() || !form.description.trim()) return
+    await api.rfis.create(Number(currentProject.id), form.subject, form.description, form.due_date || undefined)
+    setForm({ subject: '', description: '', due_date: '' })
+    setShowForm(false)
+    load()
+  }
+
+  const updateStatus = async (rfi: api.RFI, status: string) => {
+    if (!currentProject) return
+    await api.rfis.update(Number(currentProject.id), rfi.id, { status })
+    load()
+  }
+
+  const saveResponse = async (rfi: api.RFI) => {
+    if (!currentProject) return
+    const text = responseText[rfi.id] ?? ''
+    await api.rfis.update(Number(currentProject.id), rfi.id, { response: text, status: 'answered' })
+    setResponseText(prev => { const n = { ...prev }; delete n[rfi.id]; return n })
+    load()
+  }
+
+  const del = async (rfi: api.RFI) => {
+    if (!currentProject || !confirm(`Delete RFI #${rfi.number}?`)) return
+    await api.rfis.delete(Number(currentProject.id), rfi.id)
+    load()
+  }
+
+  const statusColor = (s: string) => s === 'open' ? '#F87171' : s === 'answered' ? '#34D399' : '#9CA3AF'
+
+  if (!currentProject) return <div className="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>Select a project first.</div>
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold">Requests for Information</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{rfis.length} RFI{rfis.length !== 1 ? 's' : ''}</p>
+        </div>
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+          <Plus size={14} /> New RFI
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="card p-4 mb-6 space-y-3">
+          <h3 className="text-sm font-semibold">New RFI</h3>
+          <input className="w-full text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            placeholder="Subject *" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
+          <textarea className="w-full text-sm px-3 py-2 rounded resize-none" rows={3} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            placeholder="Description *" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          <input type="date" className="text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
+          <div className="flex gap-2">
+            <button onClick={submit} className="btn-primary px-4 py-1.5 text-sm">Submit</button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-1.5 text-sm rounded" style={{ border: '1px solid var(--border)' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}><Loader2 size={20} className="animate-spin inline" /></div>}
+
+      {!loading && rfis.length === 0 && (
+        <div className="text-center py-16" style={{ color: 'var(--text-secondary)' }}>
+          <ClipboardList size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No RFIs yet. Create one or ask the AI to log it for you.</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {rfis.map(rfi => (
+          <div key={rfi.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-mono" style={{ color: 'var(--text-secondary)' }}>RFI #{rfi.number}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-mono" style={{ background: statusColor(rfi.status) + '22', color: statusColor(rfi.status) }}>{rfi.status.toUpperCase()}</span>
+                  {rfi.due_date && <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Due {rfi.due_date}</span>}
+                </div>
+                <h4 className="text-sm font-semibold">{rfi.subject}</h4>
+                <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{rfi.description}</p>
+                {rfi.response && (
+                  <div className="mt-2 p-2 rounded text-xs" style={{ background: 'var(--surface)', borderLeft: '2px solid #34D399' }}>
+                    <span className="font-mono" style={{ color: '#34D399' }}>RESPONSE: </span>{rfi.response}
+                  </div>
+                )}
+                {editId === rfi.id && (
+                  <div className="mt-2 flex gap-2">
+                    <textarea className="flex-1 text-xs px-2 py-1.5 rounded resize-none" rows={2} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                      placeholder="Enter response…" value={responseText[rfi.id] ?? rfi.response ?? ''}
+                      onChange={e => setResponseText(prev => ({ ...prev, [rfi.id]: e.target.value }))} />
+                    <button onClick={() => saveResponse(rfi)} className="btn-primary px-3 text-xs"><Check size={12} /></button>
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {rfi.status === 'open' && (
+                  <button onClick={() => setEditId(editId === rfi.id ? null : rfi.id)} className="p-1.5 rounded" style={{ color: 'var(--text-secondary)' }} title="Respond">
+                    <Pencil size={13} />
+                  </button>
+                )}
+                {rfi.status !== 'closed' && (
+                  <button onClick={() => updateStatus(rfi, rfi.status === 'open' ? 'closed' : 'open')} className="p-1.5 rounded text-xs" style={{ color: 'var(--text-secondary)' }} title={rfi.status === 'open' ? 'Close' : 'Reopen'}>
+                    <X size={13} />
+                  </button>
+                )}
+                <button onClick={() => del(rfi)} className="p-1.5 rounded" style={{ color: 'var(--text-secondary)' }} title="Delete">
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Daily Reports Tab ───────────────────────────────────────
+function DailyReportsTab({ currentProject }: { currentProject: Project | null }) {
+  const [reports, setReports] = useState<api.DailyReport[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ report_date: new Date().toISOString().slice(0, 10), work_performed: '', weather: '', crew_count: '', issues: '' })
+
+  const load = useCallback(async () => {
+    if (!currentProject) return
+    setLoading(true)
+    try { setReports(await api.dailyReports.list(Number(currentProject.id))) } catch { /* ignore */ }
+    setLoading(false)
+  }, [currentProject])
+
+  useEffect(() => { load() }, [load])
+
+  const submit = async () => {
+    if (!currentProject || !form.work_performed.trim()) return
+    await api.dailyReports.create(Number(currentProject.id), {
+      report_date: form.report_date,
+      work_performed: form.work_performed,
+      weather: form.weather || undefined,
+      crew_count: form.crew_count ? Number(form.crew_count) : undefined,
+      issues: form.issues || undefined,
+    })
+    setForm({ report_date: new Date().toISOString().slice(0, 10), work_performed: '', weather: '', crew_count: '', issues: '' })
+    setShowForm(false)
+    load()
+  }
+
+  const del = async (r: api.DailyReport) => {
+    if (!currentProject || !confirm(`Delete report for ${r.report_date}?`)) return
+    await api.dailyReports.delete(Number(currentProject.id), r.id)
+    load()
+  }
+
+  if (!currentProject) return <div className="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>Select a project first.</div>
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold">Daily Reports</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{reports.length} report{reports.length !== 1 ? 's' : ''}</p>
+        </div>
+        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+          <Plus size={14} /> Log Report
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="card p-4 mb-6 space-y-3">
+          <h3 className="text-sm font-semibold">New Daily Report</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>Date *</label>
+              <input type="date" className="w-full text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                value={form.report_date} onChange={e => setForm(f => ({ ...f, report_date: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>Weather</label>
+              <input className="w-full text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                placeholder="e.g. Sunny, 72°F" value={form.weather} onChange={e => setForm(f => ({ ...f, weather: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>Crew Count</label>
+            <input type="number" className="w-32 text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              placeholder="0" value={form.crew_count} onChange={e => setForm(f => ({ ...f, crew_count: e.target.value }))} />
+          </div>
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>Work Performed *</label>
+            <textarea className="w-full text-sm px-3 py-2 rounded resize-none" rows={3} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              placeholder="Describe work completed today…" value={form.work_performed} onChange={e => setForm(f => ({ ...f, work_performed: e.target.value }))} />
+          </div>
+          <div>
+            <label className="text-xs mb-1 block" style={{ color: 'var(--text-secondary)' }}>Issues / Notes</label>
+            <textarea className="w-full text-sm px-3 py-2 rounded resize-none" rows={2} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              placeholder="Any delays, safety issues, or notes…" value={form.issues} onChange={e => setForm(f => ({ ...f, issues: e.target.value }))} />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={submit} className="btn-primary px-4 py-1.5 text-sm">Save Report</button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-1.5 text-sm rounded" style={{ border: '1px solid var(--border)' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}><Loader2 size={20} className="animate-spin inline" /></div>}
+
+      {!loading && reports.length === 0 && (
+        <div className="text-center py-16" style={{ color: 'var(--text-secondary)' }}>
+          <HardHat size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No daily reports yet. Log one or ask the AI to create one for you.</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {reports.map(r => (
+          <div key={r.id} className="card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-sm font-semibold">{r.report_date}</span>
+                  {r.weather && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--surface)', color: 'var(--text-secondary)' }}>{r.weather}</span>}
+                  {r.crew_count != null && <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{r.crew_count} crew</span>}
+                </div>
+                <p className="text-sm" style={{ color: 'var(--text-primary)' }}>{r.work_performed}</p>
+                {r.issues && (
+                  <div className="mt-2 p-2 rounded text-xs" style={{ background: 'var(--surface)', borderLeft: '2px solid #F87171' }}>
+                    <span className="font-mono" style={{ color: '#F87171' }}>ISSUES: </span>{r.issues}
+                  </div>
+                )}
+                {r.created_by && <p className="text-xs mt-2" style={{ color: 'var(--text-secondary)' }}>by {r.created_by}</p>}
+              </div>
+              <button onClick={() => del(r)} className="p-1.5 rounded flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Action Items Tab ────────────────────────────────────────
+function ActionItemsTab({ currentProject }: { currentProject: Project | null }) {
+  const [items, setItems] = useState<api.ActionItem[]>([])
+  const [loading, setLoading] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>('open')
+  const [form, setForm] = useState({ description: '', assigned_to: '', due_date: '' })
+
+  const load = useCallback(async () => {
+    if (!currentProject) return
+    setLoading(true)
+    try { setItems(await api.actionItems.list(Number(currentProject.id), statusFilter === 'all' ? undefined : statusFilter)) } catch { /* ignore */ }
+    setLoading(false)
+  }, [currentProject, statusFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const submit = async () => {
+    if (!currentProject || !form.description.trim()) return
+    await api.actionItems.create(Number(currentProject.id), form.description, form.assigned_to || undefined, form.due_date || undefined)
+    setForm({ description: '', assigned_to: '', due_date: '' })
+    setShowForm(false)
+    load()
+  }
+
+  const toggle = async (item: api.ActionItem) => {
+    if (!currentProject) return
+    await api.actionItems.update(Number(currentProject.id), item.id, { status: item.status === 'open' ? 'done' : 'open' })
+    load()
+  }
+
+  const del = async (item: api.ActionItem) => {
+    if (!currentProject || !confirm('Delete this action item?')) return
+    await api.actionItems.delete(Number(currentProject.id), item.id)
+    load()
+  }
+
+  if (!currentProject) return <div className="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>Select a project first.</div>
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 max-w-4xl mx-auto w-full">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-lg font-semibold">Action Items</h2>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{items.length} item{items.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select className="text-xs px-2 py-1.5 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <option value="open">Open</option>
+            <option value="done">Done</option>
+            <option value="all">All</option>
+          </select>
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+            <Plus size={14} /> Add Item
+          </button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="card p-4 mb-6 space-y-3">
+          <h3 className="text-sm font-semibold">New Action Item</h3>
+          <input className="w-full text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            placeholder="Description *" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <input className="text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              placeholder="Assigned to" value={form.assigned_to} onChange={e => setForm(f => ({ ...f, assigned_to: e.target.value }))} />
+            <input type="date" className="text-sm px-3 py-2 rounded" style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+              value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={submit} className="btn-primary px-4 py-1.5 text-sm">Add</button>
+            <button onClick={() => setShowForm(false)} className="px-4 py-1.5 text-sm rounded" style={{ border: '1px solid var(--border)' }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {loading && <div className="text-center py-8" style={{ color: 'var(--text-secondary)' }}><Loader2 size={20} className="animate-spin inline" /></div>}
+
+      {!loading && items.length === 0 && (
+        <div className="text-center py-16" style={{ color: 'var(--text-secondary)' }}>
+          <CheckCircle2 size={32} className="mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No action items. Add one or ask the AI to create one.</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {items.map(item => (
+          <div key={item.id} className="card p-3 flex items-start gap-3">
+            <button onClick={() => toggle(item)} className="mt-0.5 flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center"
+              style={{ borderColor: item.status === 'done' ? '#34D399' : 'var(--border)', background: item.status === 'done' ? '#34D399' : 'transparent' }}>
+              {item.status === 'done' && <Check size={10} style={{ color: '#000' }} />}
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm" style={{ textDecoration: item.status === 'done' ? 'line-through' : 'none', color: item.status === 'done' ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+                {item.description}
+              </p>
+              <div className="flex items-center gap-3 mt-1">
+                {item.assigned_to && <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>→ {item.assigned_to}</span>}
+                {item.due_date && <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>due {item.due_date}</span>}
+              </div>
+            </div>
+            <button onClick={() => del(item)} className="p-1 flex-shrink-0" style={{ color: 'var(--text-secondary)' }}>
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings Tab ───────────────────────────────────────────
 function SettingsTab({ selectedModel, onModelChange }: {
   selectedModel: string
@@ -2276,15 +2652,18 @@ export default function DashboardPage() {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
       case 'files':     return <FilesTab files={files} onUpload={handleBulkUpload} onDelete={handleDeleteFile} isUploading={uploadQueue.some(f => f.status === 'uploading')} onSearch={handleSearch} searchQuery={searchQuery} searchResults={searchResults} currentProject={current} />
-      case 'chat':      return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
-      case 'conflicts': return <ConflictsTab files={files} currentProject={current} />
-      case 'compare':   return <CompareTab files={files} currentProject={current} />
+      case 'chat':          return <ChatTab files={files} currentProject={current} messages={chatMsgs} isLoading={chatLoading} onSendMessage={handleSendMessage} activeModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} threads={chatThreads} currentThreadId={currentChatId} onThreadSelect={handleThreadSelect} onNewThread={handleNewThread} onDeleteThread={handleDeleteThread} onRenameThread={handleRenameThread} />
+      case 'rfis':          return <RFIsTab currentProject={current} />
+      case 'daily-reports': return <DailyReportsTab currentProject={current} />
+      case 'action-items':  return <ActionItemsTab currentProject={current} />
+      case 'conflicts':     return <ConflictsTab files={files} currentProject={current} />
+      case 'compare':       return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
       default:          return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
     }
   }
 
-  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings → AI Model' }
+  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', rfis: 'RFIs', 'daily-reports': 'Daily Reports', 'action-items': 'Action Items', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings → AI Model' }
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>

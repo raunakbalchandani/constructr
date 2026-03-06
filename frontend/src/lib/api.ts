@@ -213,6 +213,88 @@ export const conflictStatuses = {
     ),
 }
 
+// RFIs
+export interface RFI {
+  id: number
+  number: number
+  subject: string
+  description: string
+  status: string
+  response?: string
+  due_date?: string
+  created_by?: string
+  created_at: string
+}
+
+export const rfis = {
+  list: (projectId: number, status?: string) =>
+    request<RFI[]>(`/projects/${projectId}/rfis${status ? `?status=${status}` : ''}`),
+  create: (projectId: number, subject: string, description: string, due_date?: string) =>
+    request<RFI>(`/projects/${projectId}/rfis`, {
+      method: 'POST',
+      body: JSON.stringify({ subject, description, due_date }),
+    }),
+  update: (projectId: number, rfiId: number, data: Partial<Pick<RFI, 'subject' | 'description' | 'status' | 'response' | 'due_date'>>) =>
+    request<RFI>(`/projects/${projectId}/rfis/${rfiId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (projectId: number, rfiId: number) =>
+    request<void>(`/projects/${projectId}/rfis/${rfiId}`, { method: 'DELETE' }),
+}
+
+// Daily Reports
+export interface DailyReport {
+  id: number
+  report_date: string
+  work_performed: string
+  weather?: string
+  crew_count?: number
+  issues?: string
+  created_by?: string
+  created_at: string
+}
+
+export const dailyReports = {
+  list: (projectId: number) =>
+    request<DailyReport[]>(`/projects/${projectId}/daily-reports`),
+  create: (projectId: number, data: { report_date: string; work_performed: string; weather?: string; crew_count?: number; issues?: string }) =>
+    request<DailyReport>(`/projects/${projectId}/daily-reports`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  delete: (projectId: number, reportId: number) =>
+    request<void>(`/projects/${projectId}/daily-reports/${reportId}`, { method: 'DELETE' }),
+}
+
+// Action Items
+export interface ActionItem {
+  id: number
+  description: string
+  assigned_to?: string
+  due_date?: string
+  status: string
+  created_by?: string
+  created_at: string
+}
+
+export const actionItems = {
+  list: (projectId: number, status?: string) =>
+    request<ActionItem[]>(`/projects/${projectId}/action-items${status ? `?status=${status}` : ''}`),
+  create: (projectId: number, description: string, assigned_to?: string, due_date?: string) =>
+    request<ActionItem>(`/projects/${projectId}/action-items`, {
+      method: 'POST',
+      body: JSON.stringify({ description, assigned_to, due_date }),
+    }),
+  update: (projectId: number, itemId: number, data: Partial<Pick<ActionItem, 'description' | 'assigned_to' | 'due_date' | 'status'>>) =>
+    request<ActionItem>(`/projects/${projectId}/action-items/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (projectId: number, itemId: number) =>
+    request<void>(`/projects/${projectId}/action-items/${itemId}`, { method: 'DELETE' }),
+}
+
 export function previewUrl(projectId: number, documentId: number): string {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   return `/api/projects/${projectId}/documents/${documentId}/preview?token=${encodeURIComponent(token ?? '')}`
