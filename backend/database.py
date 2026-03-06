@@ -37,6 +37,8 @@ class User(Base):
 
     # Relationships
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
+    memberships = relationship("ProjectMember", back_populates="user")
+    notifications = relationship("Notification", back_populates="user")
 
 
 class Project(Base):
@@ -59,6 +61,7 @@ class Project(Base):
     rfis = relationship("RFI", back_populates="project", cascade="all, delete-orphan")
     daily_reports = relationship("DailyReport", back_populates="project", cascade="all, delete-orphan")
     action_items = relationship("ActionItem", back_populates="project", cascade="all, delete-orphan")
+    members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -82,6 +85,7 @@ class Document(Base):
 
     # Relationships
     project = relationship("Project", back_populates="documents")
+    annotations = relationship("Annotation", back_populates="document", cascade="all, delete-orphan")
 
 
 class Chat(Base):
@@ -199,6 +203,54 @@ class ActionItem(Base):
 
     __table_args__ = (Index('ix_actionitem_project_id', 'project_id'),)
     project = relationship("Project", back_populates="action_items")
+
+
+class ProjectMember(Base):
+    __tablename__ = "project_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # null if invite pending
+    invited_email = Column(String(255), nullable=False)
+    role = Column(String(20), default="editor")  # owner, editor, viewer
+    status = Column(String(20), default="pending")  # pending, active
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('ix_member_project_id', 'project_id'),)
+    project = relationship("Project", back_populates="members")
+    user = relationship("User", back_populates="memberships")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=True)
+    type = Column(String(50), nullable=False)
+    message = Column(Text, nullable=False)
+    link_tab = Column(String(50), nullable=True)
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('ix_notification_user_id', 'user_id'),)
+    user = relationship("User", back_populates="notifications")
+
+
+class Annotation(Base):
+    __tablename__ = "annotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_name = Column(String(255))
+    type = Column(String(20), nullable=False)  # pin, box, line, text
+    data = Column(Text, nullable=False)  # JSON
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('ix_annotation_document_id', 'document_id'),)
+    document = relationship("Document", back_populates="annotations")
 
 
 # Database dependency for FastAPI
