@@ -79,9 +79,6 @@ ANTHROPIC_MODELS = {
     "claude-haiku-4-5-20251001",
 }
 
-# Retained for future use (e.g. selective processing); no longer gates PDF vision routing
-VISUAL_DOC_TYPES = {"drawing", "floor_plan", "site_plan", "unknown"}
-
 # Image file extensions that can be passed directly to the vision API
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".webp", ".bmp"}
 

@@ -869,7 +869,7 @@ async def chat(
     db: Session = Depends(get_db)
 ):
     """Chat with AI about documents."""
-    if not ConstructionAI:
+    if not ConstructionAgent:
         raise HTTPException(
             status_code=500,
             detail="AI assistant not available"
