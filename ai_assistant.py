@@ -175,8 +175,8 @@ def _pdf_to_images(file_path: str) -> List[str]:
         pages = min(len(pdf), MAX_PDF_PAGES)
         for page_num in range(pages):
             page = pdf.load_page(page_num)
-            # 250 DPI — high enough for small dimension text in construction drawings
-            mat = fitz.Matrix(250 / 72, 250 / 72)
+            # 300 DPI — professional print standard; maximum safe for Anthropic's 5 MB image limit
+            mat = fitz.Matrix(300 / 72, 300 / 72)
             pix = page.get_pixmap(matrix=mat)
             images.append(base64.b64encode(pix.tobytes("png")).decode())
         pdf.close()
