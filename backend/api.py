@@ -816,6 +816,7 @@ async def chat(
             "text_content": text,
             "word_count": word_count,
             "file_path": doc.file_path,
+            "parse_quality": doc.parse_quality or "good",
         })
 
     # Get or create chat session for this project
@@ -1192,6 +1193,7 @@ async def analyze_conflicts(
                 "text_content": doc.extracted_text,
                 "word_count": len(doc.extracted_text.split()),
                 "file_path": doc.file_path,
+                "parse_quality": doc.parse_quality or "good",
             })
 
     if len(doc_list) < 2:
@@ -1309,6 +1311,7 @@ async def compare_documents(
             "text_content": doc.extracted_text or "",
             "word_count": len((doc.extracted_text or "").split()),
             "file_path": doc.file_path,
+            "parse_quality": doc.parse_quality or "good",
         })
 
     try:
