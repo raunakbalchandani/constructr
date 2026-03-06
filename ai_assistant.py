@@ -1018,3 +1018,336 @@ Return ONLY the JSON. No markdown fences, no explanation."""
             )
         except Exception as e:
             return self._handle_api_error(e)
+
+# ── Tool-use Agent ──────────────────────────────────────────────────────────
+
+AGENT_SYSTEM_PROMPT = """You are Foreperson — an AI construction project manager built by Foreperson.ai.
+
+You have full access to project documents, RFIs, daily reports, and action items via your tools. Use them.
+
+How you work:
+- When asked about project content: search or retrieve documents, then answer specifically.
+- When asked to create an RFI, log a report, or add an action item: do it with the appropriate tool, then confirm.
+- When asked a general construction question: answer from your expertise, no tools needed.
+- Follow-up questions: remember the conversation — don't re-search if you already have the answer.
+- Be direct. No filler. No "Great question!". No unsolicited summaries.
+- When you take an action, confirm it briefly: "Created RFI #4 — Concrete mix spec clarification."
+- When information isn't in the documents, say so. Don't fabricate.
+- You are NOT made by OpenAI or Anthropic — those are model providers. You are Foreperson, built by Foreperson.ai.
+"""
+
+AGENT_TOOLS = [
+    {
+        "name": "search_documents",
+        "description": "Search project documents by keyword or topic. Use this when the user asks about specs, contracts, drawings, or any project document content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to search for"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "get_document",
+        "description": "Get the full content of a specific document by filename.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "The document filename (partial match OK)"}
+            },
+            "required": ["filename"]
+        }
+    },
+    {
+        "name": "create_rfi",
+        "description": "Create a new RFI (Request for Information) for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Short RFI subject/title"},
+                "description": {"type": "string", "description": "Full description of the question or issue"},
+                "due_date": {"type": "string", "description": "Due date YYYY-MM-DD (optional)"}
+            },
+            "required": ["subject", "description"]
+        }
+    },
+    {
+        "name": "get_rfis",
+        "description": "Get the list of RFIs for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter: 'open', 'answered', 'closed', or 'all'"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "create_daily_report",
+        "description": "Log a daily report for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "report_date": {"type": "string", "description": "Date YYYY-MM-DD"},
+                "work_performed": {"type": "string", "description": "Description of work done"},
+                "weather": {"type": "string", "description": "Weather conditions (optional)"},
+                "crew_count": {"type": "integer", "description": "Number of crew on site (optional)"},
+                "issues": {"type": "string", "description": "Any issues or delays (optional)"}
+            },
+            "required": ["report_date", "work_performed"]
+        }
+    },
+    {
+        "name": "get_daily_reports",
+        "description": "Get daily reports for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Number of recent reports (default 5)"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "create_action_item",
+        "description": "Create a new action item or task for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {"type": "string", "description": "What needs to be done"},
+                "assigned_to": {"type": "string", "description": "Who is responsible (optional)"},
+                "due_date": {"type": "string", "description": "Due date YYYY-MM-DD (optional)"}
+            },
+            "required": ["description"]
+        }
+    },
+    {
+        "name": "get_action_items",
+        "description": "Get action items for this project.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "'open', 'done', or 'all' (default 'open')"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "get_project_status",
+        "description": "Get a summary: document count, open RFIs, recent reports, open action items.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+]
+
+
+class ConstructionAgent:
+    """Agentic AI construction PM using Anthropic tool-use."""
+
+    MAX_ITERATIONS = 8
+
+    def __init__(self, db, project_id: int, user_name: str, documents: list = None, model: str = None):
+        self._db = db
+        self._project_id = project_id
+        self._user_name = user_name
+        self._documents = documents or []
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise RuntimeError("ANTHROPIC_API_KEY is required for the agent.")
+        import anthropic
+        self._client = anthropic.Anthropic(api_key=api_key)
+        self._model = model if model and model in ANTHROPIC_MODELS else DEFAULT_ANTHROPIC_MODEL
+
+    def _tool_search_documents(self, query: str) -> str:
+        if not self._documents:
+            return "No documents uploaded to this project."
+        query_lower = query.lower()
+        results = []
+        for doc in self._documents:
+            text = doc.get("text_content", "")
+            if not text or doc.get("parse_quality") == "empty":
+                continue
+            paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
+            matches = [p for p in paragraphs if query_lower in p.lower()][:5]
+            if matches:
+                results.append(f"[{doc['filename']}]\n" + "\n".join(matches))
+        if not results:
+            snippets = []
+            for doc in self._documents[:3]:
+                text = doc.get("text_content", "")[:500]
+                if text:
+                    snippets.append(f"[{doc['filename']}]\n{text}")
+            if snippets:
+                return "No exact matches. Document excerpts:\n\n" + "\n\n".join(snippets)
+            return f"No results found for '{query}'."
+        return "\n\n".join(results)
+
+    def _tool_get_document(self, filename: str) -> str:
+        filename_lower = filename.lower()
+        for doc in self._documents:
+            if filename_lower in doc["filename"].lower():
+                text = doc.get("text_content", "")
+                if doc.get("parse_quality") in ("empty", "low") and doc.get("word_count", 0) < 20:
+                    return f"[{doc['filename']}] could not be extracted — re-export as PDF or DXF."
+                return f"[{doc['filename']}]\n{text[:15000]}"
+        return f"No document matching '{filename}' found."
+
+    def _tool_create_rfi(self, subject: str, description: str, due_date: str = None) -> str:
+        from backend.database import RFI
+        last = self._db.query(RFI).filter(RFI.project_id == self._project_id).order_by(RFI.number.desc()).first()
+        number = (last.number + 1) if last else 1
+        rfi = RFI(project_id=self._project_id, number=number, subject=subject,
+                  description=description, due_date=due_date, created_by=self._user_name, status="open")
+        self._db.add(rfi)
+        self._db.commit()
+        return f"RFI #{number} created: '{subject}' (status: open{', due: ' + due_date if due_date else ''})."
+
+    def _tool_get_rfis(self, status: str = "all") -> str:
+        from backend.database import RFI
+        q = self._db.query(RFI).filter(RFI.project_id == self._project_id)
+        if status and status != "all":
+            q = q.filter(RFI.status == status)
+        rfis = q.order_by(RFI.number.desc()).limit(20).all()
+        if not rfis:
+            return f"No RFIs found."
+        return "\n".join(f"RFI #{r.number} [{r.status.upper()}] — {r.subject}" for r in rfis)
+
+    def _tool_create_daily_report(self, report_date: str, work_performed: str,
+                                   weather: str = None, crew_count: int = None, issues: str = None) -> str:
+        from backend.database import DailyReport
+        report = DailyReport(project_id=self._project_id, report_date=report_date,
+                             work_performed=work_performed, weather=weather,
+                             crew_count=crew_count, issues=issues, created_by=self._user_name)
+        self._db.add(report)
+        self._db.commit()
+        return f"Daily report logged for {report_date}."
+
+    def _tool_get_daily_reports(self, limit: int = 5) -> str:
+        from backend.database import DailyReport
+        reports = self._db.query(DailyReport).filter(
+            DailyReport.project_id == self._project_id
+        ).order_by(DailyReport.report_date.desc()).limit(limit).all()
+        if not reports:
+            return "No daily reports logged yet."
+        lines = [f"{r.report_date} — {r.work_performed[:120]}" + (f" | Issues: {r.issues[:60]}" if r.issues else "") for r in reports]
+        return "\n".join(lines)
+
+    def _tool_create_action_item(self, description: str, assigned_to: str = None, due_date: str = None) -> str:
+        from backend.database import ActionItem
+        item = ActionItem(project_id=self._project_id, description=description,
+                          assigned_to=assigned_to, due_date=due_date,
+                          created_by=self._user_name, status="open")
+        self._db.add(item)
+        self._db.commit()
+        return f"Action item created: '{description}'{' → ' + assigned_to if assigned_to else ''}{', due ' + due_date if due_date else ''}."
+
+    def _tool_get_action_items(self, status: str = "open") -> str:
+        from backend.database import ActionItem
+        q = self._db.query(ActionItem).filter(ActionItem.project_id == self._project_id)
+        if status and status != "all":
+            q = q.filter(ActionItem.status == status)
+        items = q.order_by(ActionItem.created_at.desc()).limit(20).all()
+        if not items:
+            return f"No action items."
+        return "\n".join(
+            f"[{i.status.upper()}] {i.description}{' → ' + i.assigned_to if i.assigned_to else ''}{', due ' + i.due_date if i.due_date else ''}"
+            for i in items
+        )
+
+    def _tool_get_project_status(self) -> str:
+        from backend.database import RFI, DailyReport, ActionItem
+        doc_count = len(self._documents)
+        open_rfis = self._db.query(RFI).filter(RFI.project_id == self._project_id, RFI.status == "open").count()
+        total_rfis = self._db.query(RFI).filter(RFI.project_id == self._project_id).count()
+        open_actions = self._db.query(ActionItem).filter(ActionItem.project_id == self._project_id, ActionItem.status == "open").count()
+        last_report = self._db.query(DailyReport).filter(DailyReport.project_id == self._project_id).order_by(DailyReport.report_date.desc()).first()
+        return "\n".join([
+            f"Documents: {doc_count}",
+            f"RFIs: {open_rfis} open / {total_rfis} total",
+            f"Action items: {open_actions} open",
+            f"Last daily report: {last_report.report_date if last_report else 'none'}",
+        ])
+
+    def _run_tool(self, name: str, inputs: dict) -> str:
+        try:
+            dispatch = {
+                "search_documents": self._tool_search_documents,
+                "get_document": self._tool_get_document,
+                "create_rfi": self._tool_create_rfi,
+                "get_rfis": self._tool_get_rfis,
+                "create_daily_report": self._tool_create_daily_report,
+                "get_daily_reports": self._tool_get_daily_reports,
+                "create_action_item": self._tool_create_action_item,
+                "get_action_items": self._tool_get_action_items,
+                "get_project_status": self._tool_get_project_status,
+            }
+            fn = dispatch.get(name)
+            if fn is None:
+                return f"Unknown tool: {name}"
+            return fn(**inputs)
+        except Exception as e:
+            logger.warning("Agent tool '%s' failed: %s", name, e)
+            return f"Tool error: {e}"
+
+    def run(self, message: str, history: list = None, project_memory: list = None) -> str:
+        """Run the agentic loop: converse, call tools, return final response."""
+        system = AGENT_SYSTEM_PROMPT
+        if project_memory:
+            facts = "\n".join(f"- {m['fact_key']}: {m['fact_value']}" for m in project_memory)
+            system += f"\n\nKnown project facts:\n{facts}"
+
+        if self._documents:
+            doc_index = "\n".join(
+                f"- {d['filename']} ({d['document_type']}, {d['word_count']} words)"
+                + (" [unreadable — skip]" if d.get("parse_quality") in ("empty", "low") and d.get("word_count", 0) < 20 else "")
+                for d in self._documents
+            )
+            system += f"\n\nProject documents:\n{doc_index}\nUse search_documents or get_document to read them."
+
+        messages = []
+        if history:
+            for h in history[-CHAT_HISTORY_WINDOW:]:
+                messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": message})
+
+        response = None
+        for iteration in range(self.MAX_ITERATIONS):
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=4096,
+                system=system,
+                tools=AGENT_TOOLS,
+                messages=messages,
+            )
+
+            if response.stop_reason == "end_turn":
+                text_blocks = [b.text for b in response.content if hasattr(b, "text")]
+                return "\n".join(text_blocks).strip()
+
+            if response.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": response.content})
+                tool_results = []
+                for block in response.content:
+                    if block.type == "tool_use":
+                        logger.info("Agent: tool '%s' inputs=%s", block.name, block.input)
+                        result = self._run_tool(block.name, block.input)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        })
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            break
+
+        logger.warning("Agent: max iterations reached or unexpected stop")
+        if response:
+            text_blocks = [b.text for b in response.content if hasattr(b, "text")]
+            return "\n".join(text_blocks).strip() or "I wasn't able to complete that. Please try again."
+        return "Something went wrong. Please try again."

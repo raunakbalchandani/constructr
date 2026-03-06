@@ -56,6 +56,9 @@ class Project(Base):
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
     chats = relationship("Chat", back_populates="project", cascade="all, delete-orphan")
     memories = relationship("ProjectMemory", back_populates="project", cascade="all, delete-orphan")
+    rfis = relationship("RFI", back_populates="project", cascade="all, delete-orphan")
+    daily_reports = relationship("DailyReport", back_populates="project", cascade="all, delete-orphan")
+    action_items = relationship("ActionItem", back_populates="project", cascade="all, delete-orphan")
 
 
 class Document(Base):
@@ -143,6 +146,59 @@ class ConflictStatus(Base):
         Index('ix_conflictstatus_project_id', 'project_id'),
         UniqueConstraint('project_id', 'conflict_hash', name='uq_conflictstatus_project_conflict'),
     )
+
+
+class RFI(Base):
+    __tablename__ = "rfis"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    number = Column(Integer, nullable=False)
+    subject = Column(String(255), nullable=False)
+    description = Column(Text, nullable=False)
+    status = Column(String(20), default="open")
+    response = Column(Text, nullable=True)
+    due_date = Column(String(20), nullable=True)
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('ix_rfi_project_id', 'project_id'),)
+    project = relationship("Project", back_populates="rfis")
+
+
+class DailyReport(Base):
+    __tablename__ = "daily_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    report_date = Column(String(20), nullable=False)
+    weather = Column(String(100), nullable=True)
+    crew_count = Column(Integer, nullable=True)
+    work_performed = Column(Text, nullable=False)
+    issues = Column(Text, nullable=True)
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (Index('ix_dailyreport_project_id', 'project_id'),)
+    project = relationship("Project", back_populates="daily_reports")
+
+
+class ActionItem(Base):
+    __tablename__ = "action_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    description = Column(Text, nullable=False)
+    assigned_to = Column(String(255), nullable=True)
+    due_date = Column(String(20), nullable=True)
+    status = Column(String(20), default="open")
+    created_by = Column(String(255))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (Index('ix_actionitem_project_id', 'project_id'),)
+    project = relationship("Project", back_populates="action_items")
 
 
 # Database dependency for FastAPI
