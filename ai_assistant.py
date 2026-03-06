@@ -444,11 +444,15 @@ class ConstructionAI:
             if len(doc["text_content"]) > max_chars_per_doc:
                 text_preview += "\n[...content truncated...]"
 
+            parse_note = ""
+            if doc.get("parse_quality") in ("empty", "low"):
+                parse_note = "\nNOTE: This file could not be parsed — no content is available. If the user asks about this file, tell them directly that you cannot read it and suggest they re-export it as PDF or DXF."
+
             context_parts.append(f"""
 ---
 DOCUMENT {i+1}: {doc['filename']}
 Type: {doc['document_type']}
-Words: {doc['word_count']:,}
+Words: {doc['word_count']:,}{parse_note}
 
 Content:
 {text_preview}
@@ -506,11 +510,14 @@ Content:
             text = doc['text_content'][:PRIORITY_CHARS]
             if len(doc['text_content']) > PRIORITY_CHARS:
                 text += '\n[...content truncated...]'
+            parse_note = ""
+            if doc.get("parse_quality") in ("empty", "low"):
+                parse_note = "\nNOTE: This file could not be parsed — no content is available. Tell the user directly that you cannot read it and suggest they re-export it as PDF or DXF."
             parts.append(f"""
 ---
 DOCUMENT: {doc['filename']} ← REFERENCED
 Type: {doc['document_type']}
-Words: {doc['word_count']:,}
+Words: {doc['word_count']:,}{parse_note}
 
 Content:
 {text}
