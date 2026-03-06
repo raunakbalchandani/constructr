@@ -757,6 +757,19 @@ Brief description of the document's purpose
                 mentioned_docs, search_terms = self._parse_mentions(question)
 
                 if mentioned_docs:
+                    # If every mentioned doc is unreadable and has no vision, short-circuit
+                    unreadable = [d for d in mentioned_docs if d.get("word_count", 0) < 20]
+                    if unreadable and len(unreadable) == len(mentioned_docs):
+                        images_check = self._collect_visual_images(docs=mentioned_docs)
+                        if not images_check:
+                            names = ", ".join(d["filename"] for d in unreadable)
+                            ext = Path(unreadable[0]["filename"]).suffix.lower()
+                            fmt = "DXF or PDF" if ext == ".dwg" else "PDF"
+                            return (
+                                f"I can't read **{names}** — the file format couldn't be extracted. "
+                                f"Please re-export it as {fmt} and re-upload, then I can answer your question."
+                            )
+
                     context = self._build_context_prioritized(mentioned_docs)
                     focus = (
                         f"The user specifically referenced: "
