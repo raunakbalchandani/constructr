@@ -304,6 +304,133 @@ class ActionItemResponse(BaseModel):
         from_attributes = True
 
 
+# ---- Team Member schemas ----
+class MemberInvite(BaseModel):
+    email: EmailStr
+    role: str = "editor"
+
+class MemberUpdate(BaseModel):
+    role: str
+
+class MemberResponse(BaseModel):
+    id: int
+    invited_email: str
+    role: str
+    status: str
+    user_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    type: str
+    message: str
+    link_tab: Optional[str] = None
+    read: bool
+    project_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AnnotationCreate(BaseModel):
+    type: str
+    data: str
+
+class AnnotationResponse(BaseModel):
+    id: int
+    type: str
+    data: str
+    user_name: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+def _start_due_date_checker():
+    """Background thread: runs every hour, creates overdue notifications."""
+    import threading
+    from datetime import date
+
+    def check():
+        while True:
+            try:
+                from backend.database import SessionLocal
+                db = SessionLocal()
+                today = date.today().isoformat()
+                overdue_rfis = db.query(RFI).filter(
+                    RFI.status == "open",
+                    RFI.due_date != None,
+                    RFI.due_date < today,
+                ).all()
+                for rfi in overdue_rfis:
+                    members = db.query(ProjectMember).filter(
+                        ProjectMember.project_id == rfi.project_id,
+                        ProjectMember.status == "active",
+                    ).all()
+                    project = db.query(Project).filter(Project.id == rfi.project_id).first()
+                    owner = db.query(User).filter(User.id == project.owner_id).first() if project else None
+                    recipient_ids = {m.user_id for m in members if m.user_id}
+                    if owner:
+                        recipient_ids.add(owner.id)
+                    for uid in recipient_ids:
+                        exists = db.query(Notification).filter(
+                            Notification.user_id == uid,
+                            Notification.type == "rfi_overdue",
+                            Notification.message.contains(f"RFI #{rfi.number}"),
+                        ).first()
+                        if not exists:
+                            db.add(Notification(
+                                user_id=uid,
+                                project_id=rfi.project_id,
+                                type="rfi_overdue",
+                                message=f"RFI #{rfi.number} '{rfi.subject}' is overdue",
+                                link_tab="rfis",
+                            ))
+                overdue_items = db.query(ActionItem).filter(
+                    ActionItem.status == "open",
+                    ActionItem.due_date != None,
+                    ActionItem.due_date < today,
+                ).all()
+                for item in overdue_items:
+                    members = db.query(ProjectMember).filter(
+                        ProjectMember.project_id == item.project_id,
+                        ProjectMember.status == "active",
+                    ).all()
+                    project = db.query(Project).filter(Project.id == item.project_id).first()
+                    owner = db.query(User).filter(User.id == project.owner_id).first() if project else None
+                    recipient_ids = {m.user_id for m in members if m.user_id}
+                    if owner:
+                        recipient_ids.add(owner.id)
+                    for uid in recipient_ids:
+                        exists = db.query(Notification).filter(
+                            Notification.user_id == uid,
+                            Notification.type == "action_item_overdue",
+                            Notification.message.contains(item.description[:30]),
+                        ).first()
+                        if not exists:
+                            db.add(Notification(
+                                user_id=uid,
+                                project_id=item.project_id,
+                                type="action_item_overdue",
+                                message=f"Action item overdue: '{item.description[:60]}'",
+                                link_tab="action-items",
+                            ))
+                db.commit()
+                db.close()
+            except Exception as e:
+                logger.warning("Due-date checker error: %s", e)
+            threading.Event().wait(3600)
+
+    t = threading.Thread(target=check, daemon=True)
+    t.start()
+
+
 # Initialize database on startup
 @app.on_event("startup")
 async def startup():
@@ -326,6 +453,7 @@ async def startup():
         # Ensure new agent tables exist (init_db handles CREATE TABLE IF NOT EXISTS via SQLAlchemy metadata)
         from backend.database import Base, engine as _engine
         Base.metadata.create_all(bind=_engine)
+    _start_due_date_checker()
 
 
 # Health check
@@ -1427,6 +1555,22 @@ def _get_project_or_404(project_id: int, user_id: int, db: Session):
     return project
 
 
+def _require_role(project_id: int, user: User, db: Session, minimum_role: str = "viewer"):
+    """Check user has at least minimum_role on project. Returns member record or raises 403."""
+    role_rank = {"viewer": 0, "editor": 1, "owner": 2}
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if project and project.owner_id == user.id:
+        return None  # owner always has access
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == user.id,
+        ProjectMember.status == "active",
+    ).first()
+    if not member or role_rank.get(member.role, -1) < role_rank.get(minimum_role, 0):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return member
+
+
 @app.get("/projects/{project_id}/rfis", response_model=List[RFIResponse])
 async def list_rfis(
     project_id: int,
@@ -1603,6 +1747,201 @@ async def delete_action_item(
     if not item:
         raise HTTPException(status_code=404, detail="Action item not found")
     db.delete(item)
+    db.commit()
+
+
+# ============ Team Membership Routes ============
+
+@app.get("/projects/{project_id}/members", response_model=List[MemberResponse])
+async def list_members(
+    project_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    return db.query(ProjectMember).filter(ProjectMember.project_id == project_id).all()
+
+
+@app.post("/projects/{project_id}/members", response_model=MemberResponse, status_code=201)
+async def invite_member(
+    project_id: int,
+    body: MemberInvite,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    if body.role not in ("editor", "viewer"):
+        raise HTTPException(status_code=400, detail="Role must be editor or viewer")
+    existing = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.invited_email == body.email,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="User already invited")
+    invitee = db.query(User).filter(User.email == body.email).first()
+    member = ProjectMember(
+        project_id=project_id,
+        user_id=invitee.id if invitee else None,
+        invited_email=body.email,
+        role=body.role,
+        status="active" if invitee else "pending",
+    )
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    if invitee:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        notif = Notification(
+            user_id=invitee.id,
+            project_id=project_id,
+            type="invite_received",
+            message=f"{current_user.name} invited you to {project.name} as {body.role}",
+            link_tab="team",
+        )
+        db.add(notif)
+        db.commit()
+    return member
+
+
+@app.patch("/projects/{project_id}/members/{member_id}", response_model=MemberResponse)
+async def update_member_role(
+    project_id: int,
+    member_id: int,
+    body: MemberUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    if body.role not in ("editor", "viewer"):
+        raise HTTPException(status_code=400, detail="Role must be editor or viewer")
+    member = db.query(ProjectMember).filter(
+        ProjectMember.id == member_id, ProjectMember.project_id == project_id
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    member.role = body.role
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+@app.delete("/projects/{project_id}/members/{member_id}", status_code=204)
+async def remove_member(
+    project_id: int,
+    member_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    member = db.query(ProjectMember).filter(
+        ProjectMember.id == member_id, ProjectMember.project_id == project_id
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    db.delete(member)
+    db.commit()
+
+
+# ============ Notification Routes ============
+
+@app.get("/notifications", response_model=List[NotificationResponse])
+async def get_notifications(
+    all: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Notification).filter(Notification.user_id == current_user.id)
+    if not all:
+        q = q.filter(Notification.read == False)
+    return q.order_by(Notification.created_at.desc()).limit(50).all()
+
+
+@app.post("/notifications/{notif_id}/read", status_code=204)
+async def mark_notification_read(
+    notif_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    notif = db.query(Notification).filter(
+        Notification.id == notif_id, Notification.user_id == current_user.id
+    ).first()
+    if notif:
+        notif.read = True
+        db.commit()
+
+
+@app.post("/notifications/read-all", status_code=204)
+async def mark_all_read(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    db.query(Notification).filter(
+        Notification.user_id == current_user.id, Notification.read == False
+    ).update({"read": True})
+    db.commit()
+
+
+# ============ Annotation Routes ============
+
+@app.get("/projects/{project_id}/documents/{doc_id}/annotations", response_model=List[AnnotationResponse])
+async def list_annotations(
+    project_id: int,
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    return db.query(Annotation).filter(
+        Annotation.document_id == doc_id,
+        Annotation.project_id == project_id,
+    ).order_by(Annotation.created_at.asc()).all()
+
+
+@app.post("/projects/{project_id}/documents/{doc_id}/annotations", response_model=AnnotationResponse, status_code=201)
+async def create_annotation(
+    project_id: int,
+    doc_id: int,
+    body: AnnotationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    if body.type not in ("pin", "box", "line", "text"):
+        raise HTTPException(status_code=400, detail="type must be pin, box, line, or text")
+    ann = Annotation(
+        document_id=doc_id,
+        project_id=project_id,
+        user_id=current_user.id,
+        user_name=current_user.name,
+        type=body.type,
+        data=body.data,
+    )
+    db.add(ann)
+    db.commit()
+    db.refresh(ann)
+    return ann
+
+
+@app.delete("/projects/{project_id}/documents/{doc_id}/annotations/{ann_id}", status_code=204)
+async def delete_annotation(
+    project_id: int,
+    doc_id: int,
+    ann_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_project_or_404(project_id, current_user.id, db)
+    ann = db.query(Annotation).filter(
+        Annotation.id == ann_id,
+        Annotation.document_id == doc_id,
+    ).first()
+    if not ann:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    if ann.user_id != current_user.id:
+        project = db.query(Project).filter(Project.id == project_id).first()
+        if project.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Only the creator or owner can delete annotations")
+    db.delete(ann)
     db.commit()
 
 
