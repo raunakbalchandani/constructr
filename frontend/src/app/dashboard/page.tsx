@@ -12,7 +12,8 @@ import {
   FileSearch, Trash2, Filter, Loader2, X, Menu,
   Sun, Moon, Layers, Clock, DollarSign, ClipboardList,
   ChevronRight, ChevronDown, HardHat, FileSignature, LayoutGrid,
-  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download, Eye
+  List, FolderOpen, Home, ShieldAlert, ArrowRight, CheckCircle2, Pencil, Check, Download, Eye,
+  Bell, Users, Mic2, Radio
 } from 'lucide-react'
 
 // ─── Types ─────────────────────────────────────────────────
@@ -177,6 +178,119 @@ function DeleteProjectModal({ isOpen, onClose, onConfirm, name }: {
   )
 }
 
+// ─── Voice Recorder Hook ────────────────────────────────────
+function useVoiceRecorder(onTranscript: (text: string) => void) {
+  const [recording, setRecording] = useState(false)
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+
+  const start = async () => {
+    if (recording) return
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mr = new MediaRecorder(stream)
+      chunksRef.current = []
+      mr.ondataavailable = e => chunksRef.current.push(e.data)
+      mr.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        stream.getTracks().forEach(t => t.stop())
+        try {
+          const transcript = await api.transcribeAudio(blob)
+          if (transcript) onTranscript(transcript)
+        } catch { /* ignore */ }
+      }
+      mr.start()
+      mediaRef.current = mr
+      setRecording(true)
+    } catch { /* mic not available */ }
+  }
+
+  const stop = () => {
+    mediaRef.current?.stop()
+    mediaRef.current = null
+    setRecording(false)
+  }
+
+  return { recording, start, stop }
+}
+
+// ─── Notification Bell ──────────────────────────────────────
+function NotificationBell() {
+  const [notifs, setNotifs] = useState<api.AppNotification[]>([])
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const load = useCallback(async () => {
+    try { setNotifs(await api.notifications.list()) } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    load()
+    const id = setInterval(load, 60000)
+    return () => clearInterval(id)
+  }, [load])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const markRead = async (n: api.AppNotification) => {
+    await api.notifications.markRead(n.id)
+    load()
+  }
+
+  const markAll = async () => {
+    await api.notifications.markAllRead()
+    load()
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button onClick={() => setOpen(!open)} className="relative p-2" style={{ color: 'var(--text-secondary)' }}>
+        <Bell size={18} />
+        {notifs.length > 0 && (
+          <span className="absolute top-1 right-1 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+            style={{ background: '#F87171', color: '#fff', fontSize: '0.55rem' }}>
+            {notifs.length > 9 ? '9+' : notifs.length}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-10 w-80 rounded shadow-lg z-50 overflow-hidden"
+          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
+            <span className="text-xs font-semibold uppercase" style={{ fontFamily: 'var(--font-mono)' }}>Notifications</span>
+            {notifs.length > 0 && (
+              <button onClick={markAll} className="text-xs" style={{ color: 'var(--accent)' }}>Mark all read</button>
+            )}
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {notifs.length === 0
+              ? <p className="text-xs text-center py-6" style={{ color: 'var(--text-secondary)' }}>All caught up</p>
+              : notifs.map(n => (
+                <div key={n.id} onClick={() => markRead(n)}
+                  className="px-3 py-2.5 cursor-pointer hover:opacity-80 flex items-start gap-2"
+                  style={{ borderBottom: '1px solid var(--border)' }}>
+                  <div className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ background: '#F87171' }} />
+                  <div>
+                    <p className="text-xs">{n.message}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                      {new Date(n.created_at).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Sidebar ───────────────────────────────────────────────
 const NAV = [
   { id: 'overview',      icon: Home,          label: 'Overview' },
@@ -185,6 +299,7 @@ const NAV = [
   { id: 'rfis',          icon: ClipboardList, label: 'RFIs' },
   { id: 'daily-reports', icon: HardHat,       label: 'Daily Reports' },
   { id: 'action-items',  icon: CheckCircle2,  label: 'Action Items' },
+  { id: 'team',          icon: Users,         label: 'Team' },
   { id: 'conflicts',     icon: AlertTriangle, label: 'Conflicts' },
   { id: 'compare',       icon: GitCompare,    label: 'Compare' },
   { id: 'settings',      icon: Settings,      label: 'Settings' },
@@ -684,7 +799,7 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
           </p>
         </div>
       ) : view === 'grid' ? (
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-px" style={{ backgroundColor: 'var(--border)' }}>
           {shown.map((f) => {
             const c = cat(f.type)
             const CatIcon = c.icon
@@ -693,25 +808,6 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                 style={{ backgroundColor: 'var(--card)' }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--surface)' }}
                 onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'var(--card)' }}>
-                {/* Delete on hover */}
-                <button onClick={() => onDelete(f.id)}
-                  className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
-                  <Trash2 size={12} />
-                </button>
-                {currentProject && (
-                  <button
-                    onClick={() => { const pid = parseInt(currentProject.id, 10); const did = parseInt(f.id, 10); if (!isNaN(pid) && !isNaN(did)) window.open(previewUrl(pid, did), '_blank', 'noopener,noreferrer') }}
-                    className="absolute top-3 left-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5"
-                    style={{ color: 'var(--text-secondary)' }}
-                    title="Preview"
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)' }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-secondary)' }}>
-                    <Eye size={12} />
-                  </button>
-                )}
 
                 {/* Icon */}
                 <div className="w-10 h-10 flex items-center justify-center mb-4"
@@ -753,7 +849,32 @@ function FilesTab({ files, onUpload, onDelete, isUploading, onSearch, searchQuer
                   </span>
                   <span className="label-mono flex-shrink-0" style={{ fontFamily: 'var(--font-mono)' }}>{f.size}</span>
                 </div>
-                <p className="label-mono mt-1" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <p className="label-mono" style={{ fontFamily: 'var(--font-mono)' }}>{f.uploadedAt}</p>
+                  <div className="flex items-center gap-1 justify-end">
+                    {currentProject && (
+                      <a
+                        href={previewUrl(Number(currentProject?.id), Number(f.id))}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded"
+                        style={{ color: 'var(--text-secondary)' }}
+                        title="Preview"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <Eye size={13} />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => onDelete(f.id)}
+                      className="p-1.5 rounded"
+                      style={{ color: 'var(--text-secondary)' }}
+                      title="Delete"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
               </div>
             )
           })}
@@ -876,6 +997,9 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
   onRenameThread: (id: number, title: string) => Promise<void>
 }) {
   const [input, setInput] = useState('')
+  const { recording: micRecording, start: startMic, stop: stopMic } = useVoiceRecorder(
+    (text) => setInput(prev => prev ? prev + ' ' + text : text)
+  )
   const [modelOpen, setModelOpen] = useState(false)
   const [threadOpen, setThreadOpen] = useState(false)
   const [newThreadLoading, setNewThreadLoading] = useState(false)
@@ -1311,6 +1435,20 @@ function ChatTab({ files, currentProject, messages, isLoading, onSendMessage, ac
               disabled={!currentProject || isLoading}
               className="input flex-1"
               style={{ resize: 'none', minHeight: 44, maxHeight: 120, overflowY: 'auto', lineHeight: '1.5', fontSize: '16px' }} />
+            <button
+              onMouseDown={startMic}
+              onMouseUp={stopMic}
+              onTouchStart={startMic}
+              onTouchEnd={stopMic}
+              className="p-2 rounded flex-shrink-0"
+              title="Hold to speak"
+              style={{
+                color: micRecording ? '#F87171' : 'var(--text-secondary)',
+                background: micRecording ? '#F8717122' : 'transparent',
+              }}
+            >
+              <Mic2 size={18} />
+            </button>
             <button onClick={send}
               disabled={!input.trim() || isLoading || !currentProject}
               className="btn-primary p-3 flex-shrink-0">
@@ -1883,9 +2021,27 @@ function RFIsTab({ currentProject }: { currentProject: Project | null }) {
           <h2 className="text-lg font-semibold">Requests for Information</h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{rfis.length} RFI{rfis.length !== 1 ? 's' : ''}</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
-          <Plus size={14} /> New RFI
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={api.rfiExportUrl(Number(currentProject.id), 'pdf')}
+            download
+            className="flex items-center gap-1.5 px-3 py-2 text-xs rounded"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+          >
+            <Download size={12} /> PDF
+          </a>
+          <a
+            href={api.rfiExportUrl(Number(currentProject.id), 'xlsx')}
+            download
+            className="flex items-center gap-1.5 px-3 py-2 text-xs rounded"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+          >
+            <Download size={12} /> Excel
+          </a>
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+            <Plus size={14} /> New RFI
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -2007,9 +2163,27 @@ function DailyReportsTab({ currentProject }: { currentProject: Project | null })
           <h2 className="text-lg font-semibold">Daily Reports</h2>
           <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>{reports.length} report{reports.length !== 1 ? 's' : ''}</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
-          <Plus size={14} /> Log Report
-        </button>
+        <div className="flex items-center gap-2">
+          <a
+            href={api.dailyReportExportUrl(Number(currentProject.id), 'pdf')}
+            download
+            className="flex items-center gap-1.5 px-3 py-2 text-xs rounded"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+          >
+            <Download size={12} /> PDF
+          </a>
+          <a
+            href={api.dailyReportExportUrl(Number(currentProject.id), 'xlsx')}
+            download
+            className="flex items-center gap-1.5 px-3 py-2 text-xs rounded"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-secondary)' }}
+          >
+            <Download size={12} /> Excel
+          </a>
+          <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+            <Plus size={14} /> Log Report
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -2199,6 +2373,131 @@ function ActionItemsTab({ currentProject }: { currentProject: Project | null }) 
   )
 }
 
+// ─── Team Tab ────────────────────────────────────────────────
+function TeamTab({ currentProject }: { currentProject: Project | null }) {
+  const [memberList, setMemberList] = useState<api.ProjectMember[]>([])
+  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState('')
+  const [role, setRole] = useState('editor')
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    if (!currentProject) return
+    setLoading(true)
+    try { setMemberList(await api.members.list(Number(currentProject.id))) } catch { /* ignore */ }
+    setLoading(false)
+  }, [currentProject])
+
+  useEffect(() => { load() }, [load])
+
+  const invite = async () => {
+    if (!currentProject || !email.trim()) return
+    setError('')
+    try {
+      await api.members.invite(Number(currentProject.id), email.trim(), role)
+      setEmail('')
+      load()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Invite failed')
+    }
+  }
+
+  const changeRole = async (m: api.ProjectMember, newRole: string) => {
+    if (!currentProject) return
+    await api.members.updateRole(Number(currentProject.id), m.id, newRole)
+    load()
+  }
+
+  const removeMember = async (m: api.ProjectMember) => {
+    if (!currentProject || !confirm(`Remove ${m.invited_email}?`)) return
+    await api.members.remove(Number(currentProject.id), m.id)
+    load()
+  }
+
+  const roleColor = (r: string) => r === 'owner' ? '#34D399' : r === 'editor' ? '#60A5FA' : '#9CA3AF'
+
+  if (!currentProject) return <div className="p-8 text-center" style={{ color: 'var(--text-secondary)' }}>Select a project first.</div>
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6 max-w-3xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold">Team</h2>
+        <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+          {memberList.length} member{memberList.length !== 1 ? 's' : ''}
+        </p>
+      </div>
+
+      <div className="card p-4 mb-6">
+        <h3 className="text-sm font-semibold mb-3">Invite by email</h3>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            className="flex-1 text-sm px-3 py-2 rounded min-w-0"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            placeholder="colleague@company.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && invite()}
+          />
+          <select
+            className="text-sm px-2 py-2 rounded"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+            value={role}
+            onChange={e => setRole(e.target.value)}
+          >
+            <option value="editor">Editor</option>
+            <option value="viewer">Viewer</option>
+          </select>
+          <button onClick={invite} className="btn-primary px-4 py-2 text-sm">Invite</button>
+        </div>
+        {error && <p className="text-xs mt-2" style={{ color: '#F87171' }}>{error}</p>}
+      </div>
+
+      {loading && (
+        <div className="text-center py-8">
+          <Loader2 size={20} className="animate-spin inline" style={{ color: 'var(--text-secondary)' }} />
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {memberList.map(m => (
+          <div key={m.id} className="card p-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm">{m.invited_email}</p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-mono"
+                  style={{ background: roleColor(m.role) + '22', color: roleColor(m.role) }}
+                >
+                  {m.role.toUpperCase()}
+                </span>
+                {m.status === 'pending' && (
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>pending</span>
+                )}
+              </div>
+            </div>
+            {m.role !== 'owner' && (
+              <div className="flex items-center gap-2">
+                <select
+                  className="text-xs px-2 py-1 rounded"
+                  style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-primary)' }}
+                  value={m.role}
+                  onChange={e => changeRole(m, e.target.value)}
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                </select>
+                <button onClick={() => removeMember(m)} className="p-1" style={{ color: 'var(--text-secondary)' }}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ─── Settings Tab ───────────────────────────────────────────
 function SettingsTab({ selectedModel, onModelChange }: {
   selectedModel: string
@@ -2381,6 +2680,29 @@ function MessageContent({ content }: { content: string }) {
         )
       })}
     </>
+  )
+}
+
+// ─── Mobile Bottom Nav ───────────────────────────────────────
+function MobileBottomNav({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
+  const primary = NAV.slice(0, 5)
+  return (
+    <div
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around py-1 px-1"
+      style={{ background: 'var(--surface)', borderTop: '1px solid var(--border)' }}
+    >
+      {primary.map(({ id, icon: Icon, label }) => (
+        <button
+          key={id}
+          onClick={() => setTab(id)}
+          className="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[44px] min-h-[44px] justify-center"
+          style={{ color: tab === id ? 'var(--accent)' : 'var(--text-secondary)' }}
+        >
+          <Icon size={20} />
+          <span style={{ fontSize: '0.55rem', letterSpacing: '0.05em' }}>{label}</span>
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -2648,6 +2970,28 @@ export default function DashboardPage() {
     } finally { setChatLoading(false) }
   }
 
+  const handleVoiceCommand = useCallback(async (transcript: string) => {
+    if (!current) return
+    setChatLoading(true)
+    try {
+      const result = await api.chat.send(
+        Number(current.id),
+        `Voice command: ${transcript}`,
+        selectedModel,
+        currentChatId ?? undefined
+      )
+      setChatMsgs(prev => [...prev, {
+        id: Date.now().toString(),
+        role: 'assistant' as const,
+        content: result.response,
+        timestamp: new Date(),
+      }])
+    } catch { /* ignore */ }
+    finally { setChatLoading(false) }
+  }, [current, selectedModel, currentChatId])
+
+  const { recording: vcRecording, start: startVC, stop: stopVC } = useVoiceRecorder(handleVoiceCommand)
+
   const renderContent = () => {
     switch (tab) {
       case 'overview':  return <OverviewTab project={current} files={files} setTab={changeTab} analytics={projectAnalytics} />
@@ -2656,6 +3000,7 @@ export default function DashboardPage() {
       case 'rfis':          return <RFIsTab currentProject={current} />
       case 'daily-reports': return <DailyReportsTab currentProject={current} />
       case 'action-items':  return <ActionItemsTab currentProject={current} />
+      case 'team':          return <TeamTab currentProject={current} />
       case 'conflicts':     return <ConflictsTab files={files} currentProject={current} />
       case 'compare':       return <CompareTab files={files} currentProject={current} />
       case 'settings':  return <SettingsTab selectedModel={selectedModel} onModelChange={(m) => { setSelectedModel(m); localStorage.setItem('fp-model', m) }} />
@@ -2663,7 +3008,7 @@ export default function DashboardPage() {
     }
   }
 
-  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', rfis: 'RFIs', 'daily-reports': 'Daily Reports', 'action-items': 'Action Items', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings → AI Model' }
+  const TAB_LABELS: Record<string, string> = { overview: 'Overview', files: 'Files', chat: 'Chat', rfis: 'RFIs', 'daily-reports': 'Daily Reports', 'action-items': 'Action Items', team: 'Team', conflicts: 'Conflicts', compare: 'Compare', settings: 'Settings → AI Model' }
 
   return (
     <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg)' }}>
@@ -2717,13 +3062,35 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+
+          {/* Right side controls */}
+          <div className="flex items-center gap-1 px-2" style={{ borderLeft: '1px solid var(--border)' }}>
+            <button
+              onMouseDown={startVC}
+              onMouseUp={stopVC}
+              onTouchStart={startVC}
+              onTouchEnd={stopVC}
+              title="Hold for voice command"
+              className="p-2 rounded"
+              style={{
+                color: vcRecording ? '#F87171' : 'var(--text-secondary)',
+                background: vcRecording ? '#F8717122' : 'transparent',
+              }}
+            >
+              <Radio size={16} />
+            </button>
+            <NotificationBell />
+            <ThemeToggle />
+          </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 p-6 lg:p-8 overflow-y-auto">
+        <div className="flex-1 p-6 lg:p-8 overflow-y-auto pb-16 lg:pb-0">
           {renderContent()}
         </div>
       </main>
+
+      <MobileBottomNav tab={tab} setTab={changeTab} />
 
       {/* Floating upload progress panel */}
       {uploadQueue.length > 0 && (

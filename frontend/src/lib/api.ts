@@ -299,3 +299,99 @@ export function previewUrl(projectId: number, documentId: number): string {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   return `/api/projects/${projectId}/documents/${documentId}/preview?token=${encodeURIComponent(token ?? '')}`
 }
+
+// Team Members
+export interface ProjectMember {
+  id: number
+  invited_email: string
+  role: string
+  status: string
+  user_id?: number
+  created_at: string
+}
+
+export const members = {
+  list: (projectId: number) =>
+    request<ProjectMember[]>(`/projects/${projectId}/members`),
+  invite: (projectId: number, email: string, role: string) =>
+    request<ProjectMember>(`/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    }),
+  updateRole: (projectId: number, memberId: number, role: string) =>
+    request<ProjectMember>(`/projects/${projectId}/members/${memberId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }),
+  remove: (projectId: number, memberId: number) =>
+    request<void>(`/projects/${projectId}/members/${memberId}`, { method: 'DELETE' }),
+}
+
+// Notifications
+export interface AppNotification {
+  id: number
+  type: string
+  message: string
+  link_tab?: string
+  read: boolean
+  project_id?: number
+  created_at: string
+}
+
+export const notifications = {
+  list: (all = false) =>
+    request<AppNotification[]>(`/notifications${all ? '?all=true' : ''}`),
+  markRead: (id: number) =>
+    request<void>(`/notifications/${id}/read`, { method: 'POST' }),
+  markAllRead: () =>
+    request<void>('/notifications/read-all', { method: 'POST' }),
+}
+
+// Annotations
+export interface Annotation {
+  id: number
+  type: string
+  data: string
+  user_name?: string
+  created_at: string
+}
+
+export const annotations = {
+  list: (projectId: number, docId: number) =>
+    request<Annotation[]>(`/projects/${projectId}/documents/${docId}/annotations`),
+  create: (projectId: number, docId: number, type: string, data: string) =>
+    request<Annotation>(`/projects/${projectId}/documents/${docId}/annotations`, {
+      method: 'POST',
+      body: JSON.stringify({ type, data }),
+    }),
+  delete: (projectId: number, docId: number, annotationId: number) =>
+    request<void>(`/projects/${projectId}/documents/${docId}/annotations/${annotationId}`, {
+      method: 'DELETE',
+    }),
+}
+
+// Export helpers
+export function rfiExportUrl(projectId: number, format: 'pdf' | 'xlsx'): string {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  return `/api/projects/${projectId}/rfis/export?format=${format}&token=${encodeURIComponent(token ?? '')}`
+}
+
+export function dailyReportExportUrl(projectId: number, format: 'pdf' | 'xlsx'): string {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  return `/api/projects/${projectId}/daily-reports/export?format=${format}&token=${encodeURIComponent(token ?? '')}`
+}
+
+// Voice transcription
+export async function transcribeAudio(blob: Blob): Promise<string> {
+  const form = new FormData()
+  form.append('file', blob, 'audio.webm')
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const res = await fetch('/api/voice/transcribe', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  })
+  if (!res.ok) throw new Error('Transcription failed')
+  const data = await res.json()
+  return data.transcript as string
+}
