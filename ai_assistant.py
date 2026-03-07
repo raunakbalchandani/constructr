@@ -84,7 +84,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".webp", "
 
 # Cap images per request to keep token usage sane
 MAX_IMAGES_PER_REQUEST = 6
-MAX_PDF_PAGES = 10
+MAX_PDF_PAGES = 20
 
 
 def _build_providers(model: Optional[str] = None) -> List[AIProvider]:
@@ -158,7 +158,7 @@ def _detect_mime_type(data: bytes) -> str:
     return "image/png"  # safe default
 
 
-def _pdf_to_images(file_path: str) -> List[str]:
+def _pdf_to_images(file_path: str, hint: str = "") -> List[str]:
     """Render PDF pages to base64-encoded PNG images (requires pymupdf)."""
     try:
         import fitz  # pymupdf
@@ -169,15 +169,32 @@ def _pdf_to_images(file_path: str) -> List[str]:
     images: List[str] = []
     try:
         pdf = fitz.open(file_path)
-        pages = min(len(pdf), MAX_PDF_PAGES)
-        for page_num in range(pages):
-            page = pdf.load_page(page_num)
+
+        # Smart page selection: if hint mentions a sheet number, prioritise matching pages
+        import re as _re
+        page_indices = list(range(min(len(pdf), MAX_PDF_PAGES)))
+        if hint:
+            sheet_patterns = _re.findall(
+                r'\b([A-Z]\d+\.\d+|sheet\s*\d+|page\s*\d+|S\d+)\b',
+                hint, _re.IGNORECASE
+            )
+            if sheet_patterns:
+                matched = []
+                for i in range(len(pdf)):
+                    page_text = pdf[i].get_text("text", flags=0)[:200].lower()
+                    if any(p.lower() in page_text for p in sheet_patterns):
+                        matched.append(i)
+                if matched:
+                    page_indices = matched[:MAX_PDF_PAGES]
+
+        for i in page_indices:
+            page = pdf.load_page(i)
             # 300 DPI — professional print standard; maximum safe for Anthropic's 5 MB image limit
             mat = fitz.Matrix(300 / 72, 300 / 72)
             pix = page.get_pixmap(matrix=mat)
             images.append(base64.b64encode(pix.tobytes("png")).decode())
         pdf.close()
-        logger.info("Vision: rendered %d page(s) from %s", pages, Path(file_path).name)
+        logger.info("Vision: rendered %d page(s) from %s", len(page_indices), Path(file_path).name)
     except Exception as e:
         logger.warning("Vision: failed to render PDF %s: %s", file_path, e)
 
@@ -249,7 +266,7 @@ def _dwg_to_images(file_path: str) -> List[str]:
         return []
 
 
-def _get_doc_images(doc: Dict) -> List[str]:
+def _get_doc_images(doc: Dict, hint: str = "") -> List[str]:
     """Return base64-encoded images for a document, or [] if none are available.
 
     - Image files (jpg, png, etc.) → load directly.
@@ -272,7 +289,7 @@ def _get_doc_images(doc: Dict) -> List[str]:
         return _docx_to_images(file_path)
 
     if ext == ".pdf":
-        return _pdf_to_images(file_path)
+        return _pdf_to_images(file_path, hint=hint)
 
     if ext == ".dwg":
         return _dwg_to_images(file_path)
@@ -540,7 +557,7 @@ Content:
 
         return '\n'.join(parts)
 
-    def _collect_visual_images(self, docs: List[Dict] = None) -> List[Tuple[str, List[str]]]:
+    def _collect_visual_images(self, docs: List[Dict] = None, hint: str = "") -> List[Tuple[str, List[str]]]:
         """Gather images from documents, capped at MAX_IMAGES_PER_REQUEST total.
 
         If *docs* is given, only those docs are checked (e.g. mentioned docs first).
@@ -552,7 +569,7 @@ Content:
         for doc in source:
             if total >= MAX_IMAGES_PER_REQUEST:
                 break
-            images = _get_doc_images(doc)
+            images = _get_doc_images(doc, hint=hint)
             if images:
                 take = min(len(images), MAX_IMAGES_PER_REQUEST - total)
                 result.append((doc["filename"], images[:take]))
@@ -757,7 +774,7 @@ Brief description of the document's purpose
                     # If every mentioned doc is unreadable and has no vision, short-circuit
                     unreadable = [d for d in mentioned_docs if d.get("word_count", 0) < 20]
                     if unreadable and len(unreadable) == len(mentioned_docs):
-                        images_check = self._collect_visual_images(docs=mentioned_docs)
+                        images_check = self._collect_visual_images(docs=mentioned_docs, hint=question)
                         if not images_check:
                             names = ", ".join(d["filename"] for d in unreadable)
                             ext = Path(unreadable[0]["filename"]).suffix.lower()
@@ -773,15 +790,15 @@ Brief description of the document's purpose
                         f"{', '.join(d['filename'] for d in mentioned_docs)}. "
                         "Prioritize those documents."
                     )
-                    images_by_doc = self._collect_visual_images(docs=mentioned_docs)
+                    images_by_doc = self._collect_visual_images(docs=mentioned_docs, hint=question)
                     if len(images_by_doc) < MAX_IMAGES_PER_REQUEST:
                         remaining = [d for d in self.documents if d not in mentioned_docs]
-                        images_by_doc += self._collect_visual_images(docs=remaining)
+                        images_by_doc += self._collect_visual_images(docs=remaining, hint=question)
                         images_by_doc = images_by_doc[:MAX_IMAGES_PER_REQUEST]
                 else:
                     context = self._build_context()
                     focus = ""
-                    images_by_doc = self._collect_visual_images()
+                    images_by_doc = self._collect_visual_images(hint=question)
 
                 entity_note = ""
                 if search_terms:
