@@ -1945,6 +1945,186 @@ async def delete_annotation(
     db.commit()
 
 
+# ============ Voice Routes ============
+
+@app.post("/voice/transcribe")
+async def transcribe_voice(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Transcribe audio using OpenAI Whisper. Returns { transcript: string }."""
+    import openai
+    import tempfile
+
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+    content = await file.read()
+    if len(content) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio file too large (max 25MB)")
+
+    suffix = "." + (file.filename or "audio.webm").split(".")[-1]
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        client = openai.OpenAI(api_key=api_key)
+        with open(tmp_path, "rb") as audio_file:
+            result = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+            )
+        return {"transcript": result.text}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+    finally:
+        import os as _os
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+# ============ Export Routes ============
+
+@app.get("/projects/{project_id}/rfis/export")
+async def export_rfis(
+    project_id: int,
+    format: str = "pdf",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    project = _get_project_or_404(project_id, current_user.id, db)
+    rfis = db.query(RFI).filter(RFI.project_id == project_id).order_by(RFI.number.asc()).all()
+
+    if format == "xlsx":
+        import openpyxl
+        import io
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "RFIs"
+        ws.append(["#", "Subject", "Description", "Status", "Response", "Due Date", "Created By", "Created At"])
+        for r in rfis:
+            ws.append([r.number, r.subject, r.description, r.status,
+                       r.response or "", r.due_date or "", r.created_by or "",
+                       r.created_at.strftime("%Y-%m-%d")])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return Response(
+            content=buf.read(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=rfis_{project_id}.xlsx"},
+        )
+
+    import io
+    from reportlab.lib.pagesizes import landscape, letter
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(letter))
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph(f"RFI Log — {project.name}", styles["Title"]),
+        Paragraph(f"Exported {datetime.utcnow().strftime('%Y-%m-%d')}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+    data = [["#", "Subject", "Status", "Due Date", "Created By"]]
+    for r in rfis:
+        data.append([str(r.number), r.subject[:60], r.status, r.due_date or "—", r.created_by or "—"])
+    t = Table(data, colWidths=[30, 300, 60, 70, 100])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1c1b18")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f7f3")]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e5e5")),
+        ("PADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t)
+    doc.build(elements)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=rfis_{project_id}.pdf"},
+    )
+
+
+@app.get("/projects/{project_id}/daily-reports/export")
+async def export_daily_reports(
+    project_id: int,
+    format: str = "pdf",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    project = _get_project_or_404(project_id, current_user.id, db)
+    reports = db.query(DailyReport).filter(
+        DailyReport.project_id == project_id
+    ).order_by(DailyReport.report_date.desc()).all()
+
+    if format == "xlsx":
+        import openpyxl
+        import io
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Daily Reports"
+        ws.append(["Date", "Weather", "Crew Count", "Work Performed", "Issues", "Created By"])
+        for r in reports:
+            ws.append([r.report_date, r.weather or "", r.crew_count or "",
+                       r.work_performed, r.issues or "", r.created_by or ""])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return Response(
+            content=buf.read(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename=daily_reports_{project_id}.xlsx"},
+        )
+
+    import io
+    from reportlab.lib.pagesizes import landscape, letter
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(letter))
+    styles = getSampleStyleSheet()
+    elements = [
+        Paragraph(f"Daily Reports — {project.name}", styles["Title"]),
+        Paragraph(f"Exported {datetime.utcnow().strftime('%Y-%m-%d')}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+    data = [["Date", "Weather", "Crew", "Work Performed", "Issues"]]
+    for r in reports:
+        data.append([r.report_date, r.weather or "—", str(r.crew_count or "—"),
+                     r.work_performed[:80], (r.issues or "—")[:60]])
+    t = Table(data, colWidths=[60, 70, 40, 300, 180])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1c1b18")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f7f3")]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e5e5")),
+        ("PADDING", (0, 0), (-1, -1), 4),
+    ]))
+    elements.append(t)
+    doc.build(elements)
+    buf.seek(0)
+    return Response(
+        content=buf.read(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=daily_reports_{project_id}.pdf"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Preview helper functions
 # ---------------------------------------------------------------------------

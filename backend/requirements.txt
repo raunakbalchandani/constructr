@@ -14,6 +14,7 @@ pymupdf==1.23.8
 pdfplumber==0.10.3
 python-docx==1.1.0
 openpyxl==3.1.2
+reportlab>=4.0.0
 pandas==2.1.4
 
 # OCR support
